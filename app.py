@@ -2,7 +2,7 @@ import streamlit as st
 import random
 import time
 from datetime import datetime
-import pandas as pd
+from collections import Counter
 
 # 页面配置
 st.set_page_config(
@@ -419,29 +419,38 @@ with tab4:
     st.write("### 📊 你的美食偏好分析")
     
     if st.session_state.history:
-        df = pd.DataFrame(st.session_state.history)
+        records = st.session_state.history
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.metric("总决策次数", len(st.session_state.history))
+            st.metric("总决策次数", len(records))
             st.metric("收藏美食数", len(st.session_state.preferences['liked']))
         
         with col2:
             st.metric("黑名单数量", len(st.session_state.preferences['disliked']))
-            if st.session_state.history:
-                most_common = pd.Series([h['food'] for h in st.session_state.history]).mode()
-                if len(most_common) > 0:
-                    st.metric("最常选择", most_common[0])
+            foods = [h['food'] for h in records]
+            if foods:
+                counts = Counter(foods)
+                most_common_food = max(counts, key=counts.get)
+                st.metric("最常选择", most_common_food)
         
         st.write("#### 最近的选择记录")
-        st.dataframe(df[['time', 'food', 'method']], use_container_width=True)
+        st.dataframe([{k: r.get(k) for k in ['time','food','method']} for r in records], use_container_width=True)
         
         # 方法统计
-        if 'method' in df.columns:
+        methods = [h.get('method') for h in records if h.get('method')]
+        if methods:
             st.write("#### 决策方式分布")
-            method_counts = df['method'].value_counts()
-            st.bar_chart(method_counts)
+            method_counts = Counter(methods)
+            chart_data = [{'method': m, 'count': c} for m, c in method_counts.items()]
+            st.vega_lite_chart(chart_data, {
+                'mark': 'bar',
+                'encoding': {
+                    'x': {'field': 'method', 'type': 'nominal'},
+                    'y': {'field': 'count', 'type': 'quantitative'}
+                }
+            })
     else:
         st.info("还没有历史记录哦，快去选择美食吧！")
 
