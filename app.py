@@ -153,7 +153,7 @@ def login_page():
                 st.rerun()
         
         st.divider()
-        st.caption("💡 默认账号: admin/admin123, bf/bf123, gf/gf123")
+        # st.caption("💡 默认账号: admin/admin123, bf/bf123, gf/gf123")
 
 # ============ 主应用 ============
 def main_app():
