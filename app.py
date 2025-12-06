@@ -1,5 +1,6 @@
 import streamlit as st
 import random
+import time
 from datetime import datetime, timedelta
 from database import (
     init_default_data, verify_user, get_connection,
@@ -122,6 +123,12 @@ if 'pk_round' not in st.session_state:
     st.session_state.pk_round = []
 if 'lazy_level' not in st.session_state:
     st.session_state.lazy_level = 5
+if 'recommended_food' not in st.session_state:
+    st.session_state.recommended_food = None
+if 'recommended_reason' not in st.session_state:
+    st.session_state.recommended_reason = ""
+if 'recommended_time' not in st.session_state:
+    st.session_state.recommended_time = ""
 
 # ============ 登录界面 ============
 def login_page():
@@ -136,36 +143,51 @@ def login_page():
         
         col_a, col_b = st.columns(2)
         with col_a:
-            if st.button("登录", use_container_width=True):
-                user = verify_user(username, password)
-                if user:
-                    st.session_state.logged_in = True
-                    st.session_state.current_user = user
-                    st.success(f"欢迎回来，{user['name']}！")
-                    st.rerun()
+            if st.button("登录", use_container_width=True, key="login_btn"):
+                if username and password:
+                    user = verify_user(username, password)
+                    if user:
+                        st.session_state.logged_in = True
+                        st.session_state.current_user = user
+                        st.success(f"欢迎回来，{user['name']}！")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("用户名或密码错误")
                 else:
-                    st.error("用户名或密码错误")
+                    st.warning("请输入用户名和密码")
         
         with col_b:
-            if st.button("游客模式", use_container_width=True):
+            if st.button("游客模式", use_container_width=True, key="guest_btn"):
                 st.session_state.logged_in = True
                 st.session_state.current_user = {'username': 'guest', 'name': '游客'}
                 st.rerun()
         
         st.divider()
-        # st.caption("💡 默认账号: admin/admin123, bf/bf123, gf/gf123")
+        #st.caption("💡 默认账号: admin/admin123, bf/bf123, gf/gf123")
 
 # ============ 主应用 ============
 def main_app():
+    # 防止 session 丢失
+    if not st.session_state.get('logged_in') or not st.session_state.get('current_user'):
+        st.warning("会话已过期，请重新登录")
+        st.session_state.logged_in = False
+        st.session_state.current_user = None
+        time.sleep(1)
+        st.rerun()
+        return
+    
     # 顶部导航
     col1, col2 = st.columns([3, 1])
     with col1:
         st.markdown(f'<h1 class="main-title">🍽️ HoneyEat</h1>', unsafe_allow_html=True)
     with col2:
         st.write(f"👤 {st.session_state.current_user['name']}")
-        if st.button("退出登录"):
+        if st.button("退出登录", key="logout_top"):
             st.session_state.logged_in = False
             st.session_state.current_user = None
+            st.session_state.recommended_food = None
+            st.session_state.pk_round = []
             st.rerun()
     
     # 健康打卡栏
@@ -222,12 +244,12 @@ def show_health_checkin():
     fruit_checked = checkin['fruit_checked'] if checkin else 0
     
     with col2:
-        water = st.checkbox("💧 喝够水了", value=bool(water_checked))
+        water = st.checkbox("💧 喝够水了", value=bool(water_checked), key="water_check")
     
     with col3:
-        fruit = st.checkbox("🍎 吃水果了", value=bool(fruit_checked))
+        fruit = st.checkbox("🍎 吃水果了", value=bool(fruit_checked), key="fruit_check")
     
-    # 更新打卡状态
+    # 只在值变化时才更新，并且不触发rerun
     if water != bool(water_checked) or fruit != bool(fruit_checked):
         if checkin:
             cursor.execute("""
@@ -340,11 +362,19 @@ def smart_recommendation_page():
             )
             
             if result:
-                # 显示推荐理由
-                st.success(result['reason'])
-                show_food_result(result['food'])
+                # 将结果存入 session_state
+                st.session_state.recommended_food = result['food']
+                st.session_state.recommended_reason = result['reason']
+                st.session_state.recommended_time = time_of_day
+                st.rerun()
             else:
                 st.warning("没有找到合适的食物，试试放宽条件？")
+    
+    # 显示推荐结果
+    if 'recommended_food' in st.session_state and st.session_state.recommended_food:
+        st.divider()
+        st.success(st.session_state.recommended_reason)
+        show_food_result_v2(st.session_state.recommended_food, st.session_state.recommended_time)
 
 def get_smart_recommendation_v2(time_of_day, mood, appetite, flavor_prefer, time_constraint, exclude_recent=False):
     """基于多维度问答的智能推荐算法 v2"""
@@ -715,10 +745,7 @@ def digital_pantry_page():
             for item in items:
                 col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
-                    bought = st.checkbox(item['item_name'], key=f"shop_{item['id']}")
-                    if bought:
-                        cursor.execute("UPDATE shopping_list SET is_bought = 1 WHERE id = ?", (item['id'],))
-                        conn.commit()
+                    st.write(f"✅ {item['item_name']}")
                 with col2:
                     st.caption(f"x{item['quantity']}")
                 with col3:
@@ -853,71 +880,242 @@ def settings_page():
     
     # ==== 食物管理 ====
     with tabs[1]:
-        st.write("#### 所有食物列表")
+        st.write("#### 🍽️ 食物管理")
         
         conn = get_connection()
         cursor = conn.cursor()
         
-        # 搜索和筛选
-        col_s1, col_s2 = st.columns([2, 1])
+        # 顶部统计
+        cursor.execute("SELECT COUNT(*) as total FROM foods")
+        total_count = cursor.fetchone()['total']
+        cursor.execute("SELECT COUNT(*) as active FROM foods WHERE active = 1")
+        active_count = cursor.fetchone()['active']
+        
+        col_stat1, col_stat2, col_stat3 = st.columns(3)
+        with col_stat1:
+            st.metric("🍴 总食物数", total_count)
+        with col_stat2:
+            st.metric("✅ 已启用", active_count)
+        with col_stat3:
+            st.metric("❌ 已禁用", total_count - active_count)
+        
+        st.divider()
+        
+        # 搜索和筛选区域
+        col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
         with col_s1:
             search_term = st.text_input("🔍 搜索食物名称", key="search_food")
         with col_s2:
-            filter_category = st.selectbox("筛选分类", ["全部", "中餐", "西餐", "日料", "快餐", "家常菜", "甜品"])
+            filter_category = st.selectbox(
+                "🏷️ 筛选分类", 
+                ["全部", "中餐", "西餐", "日料", "快餐", "家常菜", "甜品", "轻食", "烧烤", "零食饮料"]
+            )
+        with col_s3:
+            filter_status = st.selectbox("🛡️ 状态", ["全部", "已启用", "已禁用"])
+        
+        # 排序选项
+        col_s4, col_s5 = st.columns([2, 1])
+        with col_s4:
+            sort_by = st.selectbox(
+                "🔄 排序方式",
+                ["最新添加", "名称A-Z", "名称Z-A", "价格从低到高", "价格从高到低"]
+            )
+        with col_s5:
+            limit = st.selectbox("📊 显示数量", [10, 20, 50, 100], index=1)
         
         # 构建查询
         query = "SELECT * FROM foods WHERE 1=1"
         params = []
+        
         if search_term:
             query += " AND name LIKE ?"
             params.append(f"%{search_term}%")
+        
         if filter_category != "全部":
             query += " AND category = ?"
             params.append(filter_category)
-        query += " ORDER BY created_at DESC LIMIT 20"
+        
+        if filter_status == "已启用":
+            query += " AND active = 1"
+        elif filter_status == "已禁用":
+            query += " AND active = 0"
+        
+        # 添加排序
+        if sort_by == "最新添加":
+            query += " ORDER BY created_at DESC"
+        elif sort_by == "名称A-Z":
+            query += " ORDER BY name ASC"
+        elif sort_by == "名称Z-A":
+            query += " ORDER BY name DESC"
+        elif sort_by == "价格从低到高":
+            query += " ORDER BY cost_level ASC"
+        elif sort_by == "价格从高到低":
+            query += " ORDER BY cost_level DESC"
+        
+        query += f" LIMIT {limit}"
         
         cursor.execute(query, params)
         foods = cursor.fetchall()
         
-        st.caption(f"共找到 {len(foods)} 个食物")
+        st.caption(f"🔎 共找到 **{len(foods)}** 个食物")
         
-        for food in foods:
-            col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-            with col1:
-                st.write(f"**{food['name']}**")
-            with col2:
-                st.caption(f"{food['category']}")
-            with col3:
-                st.caption(f"{food['cost_level']}")
-            with col4:
-                active_text = "✅" if food['active'] else "❌"
-                if st.button(active_text, key=f"toggle_{food['id']}"):
-                    new_status = 0 if food['active'] else 1
-                    cursor.execute("UPDATE foods SET active = ? WHERE id = ?", (new_status, food['id']))
-                    conn.commit()
-                    st.rerun()
+        # 食物列表
+        if foods:
+            for food in foods:
+                with st.container():
+                    col1, col2, col3, col4, col5, col6 = st.columns([3, 1, 1, 1, 1, 1])
+                    with col1:
+                        status_icon = "✅" if food['active'] else "❌"
+                        st.write(f"{status_icon} **{food['name']}**")
+                    with col2:
+                        st.caption(f"🏷️ {food['category']}")
+                    with col3:
+                        st.caption(f"💰 {food['cost_level']}")
+                    with col4:
+                        # 将 sqlite3.Row 转换为字典以支持 get 方法
+                        food_dict = dict(food)
+                        tag_emoji = {
+                            'Healthy': '🥗',
+                            'Spicy': '🌶️',
+                            'CheatMeal': '🍔',
+                            'Normal': '🍽️'
+                        }.get(food_dict.get('health_tag'), '🍽️')
+                        st.caption(f"{tag_emoji} {food_dict.get('health_tag', 'Normal')}")
+                    with col5:
+                        if st.button("✏️", key=f"edit_{food['id']}"):
+                            st.session_state[f"editing_{food['id']}"] = True
+                            st.rerun()
+                    with col6:
+                        toggle_text = "❌ 禁用" if food['active'] else "✅ 启用"
+                        if st.button(toggle_text, key=f"toggle_{food['id']}"):
+                            new_status = 0 if food['active'] else 1
+                            cursor.execute("UPDATE foods SET active = ? WHERE id = ?", (new_status, food['id']))
+                            conn.commit()
+                            st.rerun()
+                    
+                    # 编辑模式
+                    if st.session_state.get(f"editing_{food['id']}", False):
+                        with st.expander("📝 编辑食物信息", expanded=True):
+                            col_e1, col_e2, col_e3, col_e4 = st.columns(4)
+                            with col_e1:
+                                edit_name = st.text_input("名称", value=food['name'], key=f"edit_name_{food['id']}")
+                            with col_e2:
+                                categories = ["中餐", "西餐", "日料", "快餐", "家常菜", "甜品", "轻食", "烧烤", "零食饮料"]
+                                edit_cat = st.selectbox(
+                                    "分类", 
+                                    categories,
+                                    index=categories.index(food['category']) if food['category'] in categories else 0,
+                                    key=f"edit_cat_{food['id']}"
+                                )
+                            with col_e3:
+                                costs = ["$", "$$", "$$$"]
+                                edit_cost = st.selectbox(
+                                    "价格",
+                                    costs,
+                                    index=costs.index(food['cost_level']) if food['cost_level'] in costs else 0,
+                                    key=f"edit_cost_{food['id']}"
+                                )
+                            with col_e4:
+                                tags = ["Healthy", "Spicy", "CheatMeal", "Normal"]
+                                # 将 sqlite3.Row 转换为字典以支持 get 方法
+                                food_dict = dict(food)
+                                edit_tag = st.selectbox(
+                                    "标签",
+                                    tags,
+                                    index=tags.index(food_dict.get('health_tag', 'Normal')) if food_dict.get('health_tag') in tags else 3,
+                                    key=f"edit_tag_{food['id']}"
+                                )
+                            
+                            col_b1, col_b2, col_b3 = st.columns([1, 1, 2])
+                            with col_b1:
+                                if st.button("✅ 保存", key=f"save_{food['id']}", use_container_width=True):
+                                    cursor.execute("""
+                                        UPDATE foods 
+                                        SET name = ?, category = ?, cost_level = ?, health_tag = ?
+                                        WHERE id = ?
+                                    """, (edit_name, edit_cat, edit_cost, edit_tag, food['id']))
+                                    conn.commit()
+                                    st.session_state[f"editing_{food['id']}"] = False
+                                    st.success("✅ 修改成功！")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                            with col_b2:
+                                if st.button("❌ 取消", key=f"cancel_{food['id']}", use_container_width=True):
+                                    st.session_state[f"editing_{food['id']}"] = False
+                                    st.rerun()
+                            with col_b3:
+                                if st.button("🗑️ 删除该食物", key=f"delete_{food['id']}", type="secondary", use_container_width=True):
+                                    cursor.execute("DELETE FROM foods WHERE id = ?", (food['id'],))
+                                    conn.commit()
+                                    st.session_state[f"editing_{food['id']}"] = False
+                                    st.warning("⚠️ 已删除")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                    
+                    st.divider()
+        else:
+            st.info("🔍 没有找到符合条件的食物")
+        
+        # 批量操作
+        st.write("")
+        st.write("#### 🛠️ 批量操作")
+        col_batch1, col_batch2, col_batch3 = st.columns(3)
+        with col_batch1:
+            if st.button("✅ 启用所有", key="enable_all", use_container_width=True):
+                cursor.execute("UPDATE foods SET active = 1")
+                conn.commit()
+                st.success("✅ 已启用所有食物")
+                time.sleep(0.5)
+                st.rerun()
+        with col_batch2:
+            if st.button("❌ 禁用所有", key="disable_all", use_container_width=True):
+                cursor.execute("UPDATE foods SET active = 0")
+                conn.commit()
+                st.warning("⚠️ 已禁用所有食物")
+                time.sleep(0.5)
+                st.rerun()
+        with col_batch3:
+            if st.button("🗑️ 删除已禁用", key="delete_disabled", type="secondary", use_container_width=True):
+                cursor.execute("DELETE FROM foods WHERE active = 0")
+                conn.commit()
+                st.warning("⚠️ 已删除所有禁用的食物")
+                time.sleep(0.5)
+                st.rerun()
         
         st.divider()
-        st.write("#### 添加新食物")
+        
+        # 添加新食物
+        st.write("#### ➕ 添加新食物")
         col_a, col_b, col_c, col_d = st.columns(4)
         with col_a:
-            new_food_name = st.text_input("食物名称")
+            new_food_name = st.text_input("🍴 食物名称", key="new_food_name")
         with col_b:
-            new_food_cat = st.selectbox("分类", ["中餐", "西餐", "日料", "快餐", "家常菜", "甜品"])
+            new_food_cat = st.selectbox(
+                "🏷️ 分类", 
+                ["中餐", "西餐", "日料", "快餐", "家常菜", "甜品", "轻食", "烧烤", "零食饮料"],
+                key="new_food_cat"
+            )
         with col_c:
-            new_food_cost = st.selectbox("价格", ["$", "$$", "$$$"])
+            new_food_cost = st.selectbox("💰 价格", ["$", "$$", "$$$"], key="new_food_cost")
         with col_d:
-            new_food_tag = st.selectbox("标签", ["Healthy", "Spicy", "CheatMeal", "Normal"])
+            new_food_tag = st.selectbox(
+                "🏷️ 标签", 
+                ["Normal", "Healthy", "Spicy", "CheatMeal"],
+                key="new_food_tag"
+            )
         
-        if st.button("➕ 添加食物", key="add_new_food"):
+        if st.button("➕ 添加食物", key="add_new_food", use_container_width=True):
             if new_food_name:
                 cursor.execute("""
                     INSERT INTO foods (name, category, cost_level, health_tag, active)
                     VALUES (?, ?, ?, ?, 1)
                 """, (new_food_name, new_food_cat, new_food_cost, new_food_tag))
                 conn.commit()
-                st.success(f"✅ 已添加 {new_food_name}")
+                st.success(f"✅ 已添加 **{new_food_name}**")
+                time.sleep(0.5)
                 st.rerun()
+            else:
+                st.warning("⚠️ 请输入食物名称")
         
         conn.close()
     
@@ -1057,14 +1255,18 @@ def settings_page():
         
         st.divider()
         
-        if st.button("🚪 退出登录", type="secondary"):
+        if st.button("🚪 退出登录", key="logout_settings", type="secondary", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.current_user = None
+            st.session_state.recommended_food = None
+            st.session_state.pk_round = []
+            st.success("已退出登录")
+            time.sleep(0.5)
             st.rerun()
 
 # ============ 结果展示 ============
-def show_food_result(food):
-    """展示选中的食物结果"""
+def show_food_result_v2(food, time_of_day):
+    """展示选中的食物结果 - 智能推荐版本（不重复问哪一餐）"""
     st.markdown(f"""
     <div class="result-box">
         🍽️ 就吃这个！<br/>
@@ -1078,18 +1280,94 @@ def show_food_result(food):
     with col2:
         st.metric("价格", food['cost_level'])
     with col3:
-        st.metric("标签", food.get('health_tag') or "无")
+        # 将 sqlite3.Row 转换为字典以支持 get 方法
+        food_dict = dict(food)
+        st.metric("标签", food_dict.get('health_tag') or "无")
+    
+    # 根据时间段自动推断哪一餐
+    meal_time_map = {
+        "早餐时间": "早餐",
+        "午餐时间": "午餐",
+        "下午茶": "午餐",  # 下午茶计入午餐
+        "晚餐时间": "晚餐",
+        "夜宵时间": "夜宵"
+    }
+    auto_meal_time = meal_time_map.get(time_of_day, "午餐")
+    
+    # 满意度
+    col_r1, col_r2 = st.columns([3, 1])
+    with col_r1:
+        rating = st.slider("🌟 满意度", 1, 5, 5, key="rating_smart")
+    with col_r2:
+        st.write("")
+        st.write("")
+    
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        if st.button("✅ 确认吃这个", key="confirm_smart", use_container_width=True):
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO eat_history (date, meal_time, food_id, food_name, user_id, rating, mode)
+                VALUES (?, ?, ?, ?, ?, ?, 'smart')
+            """, (
+                datetime.now().date(),
+                auto_meal_time,  # 使用自动推断的餐次
+                food['id'],
+                food['name'],
+                st.session_state.current_user['username'],
+                rating
+            ))
+            conn.commit()
+            conn.close()
+            
+            st.success(f"✅ 已记录到饮食日历！（{auto_meal_time}）")
+            # 清空推荐结果
+            st.session_state.recommended_food = None
+            time.sleep(1)
+            st.rerun()
+    
+    with col_b2:
+        if st.button("🔄 换一个", key="change_smart", use_container_width=True):
+            # 清空推荐结果，返回选择界面
+            st.session_state.recommended_food = None
+            st.rerun()
+    
+    # 显示菜谱链接
+    # 将 sqlite3.Row 转换为字典以支持 get 方法
+    food_dict = dict(food)
+    if food_dict.get('recipe_link'):
+        st.write(f"📖 [查看菜谱]({food['recipe_link']})")
+
+def show_food_result(food):
+    """展示选中的食物结果 - 通用版本"""
+    st.markdown(f"""
+    <div class="result-box">
+        🍽️ 就吃这个！<br/>
+        <span style="font-size: 2.5rem;">{food['name']}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("分类", food['category'])
+    with col2:
+        st.metric("价格", food['cost_level'])
+    with col3:
+        # 将 sqlite3.Row 转换为字典以支持 get 方法
+        food_dict = dict(food)
+        st.metric("标签", food_dict.get('health_tag') or "无")
     
     # 记录到历史
-    meal_time = st.selectbox("哪一餐？", ["早餐", "午餐", "晚餐", "夜宵"])
-    rating = st.slider("满意度", 1, 5, 5)
+    meal_time = st.selectbox("🍴 哪一餐？", ["早餐", "午餐", "晚餐", "夜宵"], key="meal_time_select")
+    rating = st.slider("🌟 满意度", 1, 5, 5, key="rating_general")
     
-    if st.button("✅ 确认吃这个", use_container_width=True):
+    if st.button("✅ 确认吃这个", key="confirm_general", use_container_width=True):
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO eat_history (date, meal_time, food_id, food_name, user_id, rating, mode)
-            VALUES (?, ?, ?, ?, ?, ?, 'smart')
+            VALUES (?, ?, ?, ?, ?, ?, 'random')
         """, (
             datetime.now().date(),
             meal_time,
@@ -1101,7 +1379,7 @@ def show_food_result(food):
         conn.commit()
         conn.close()
         
-        st.success("已记录到饮食日历！")
+        st.success("✅ 已记录到饮食日历！")
     
     # 显示菜谱链接
     if food.get('recipe_link'):
