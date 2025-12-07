@@ -1,6 +1,7 @@
 import streamlit as st
 import random
 import time
+from collections import defaultdict
 from datetime import datetime, timedelta
 from database import (
     init_default_data, verify_user, get_connection,
@@ -796,7 +797,6 @@ def calendar_page():
     
     if records:
         # 按日期分组显示
-        from collections import defaultdict
         by_date = defaultdict(list)
         for rec in records:
             by_date[rec['date']].append(rec)
