@@ -230,11 +230,16 @@ def main_app():
                 st.markdown('<div style="font-size: 72px; text-align: center;">👤</div>', unsafe_allow_html=True) # 游客图标
                 st.markdown(f"<div class='user-nav-name'>{st.session_state.current_user['name']}</div>", unsafe_allow_html=True)
             
-            if st.button("退出登录", key="logout_top"):
-                st.session_state.logged_in = False
-                st.session_state.current_user = None
-                st.rerun()
-
+            if st.button("退出登录", key="logout_top", use_container_width=True):
+                @st.dialog("确认退出")
+                def confirm_logout():
+                    st.write("您确定要退出登录吗？")
+                    if st.button("确认", key="confirm_logout_top"):
+                        st.session_state.logged_in = False
+                        st.session_state.current_user = None
+                        st.rerun()
+                confirm_logout()
+            
             st.markdown('</div>', unsafe_allow_html=True)
     
     # 健康打卡栏
@@ -1323,14 +1328,15 @@ def settings_page():
         
         st.divider()
         
-        if st.button("🚪 退出登录", key="logout_settings", type="secondary", use_container_width=True):
-            st.session_state.logged_in = False
-            st.session_state.current_user = None
-            st.session_state.recommended_food = None
-            st.session_state.pk_round = []
-            st.success("已退出登录")
-            time.sleep(0.5)
-            st.rerun()
+        if st.button("🚪 退出登录", key="logout_settings", use_container_width=True):
+            @st.dialog("确认退出")
+            def confirm_logout_settings():
+                st.write("您确定要退出登录吗？")
+                if st.button("确认", key="confirm_logout_settings_btn"):
+                    st.session_state.logged_in = False
+                    st.session_state.current_user = None
+                    st.rerun()
+            confirm_logout_settings()
 
 # ============ 结果展示 ============
 def show_food_result_v2(food, time_of_day):
