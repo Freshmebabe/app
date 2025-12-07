@@ -5,7 +5,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from database import (
     init_default_data, verify_user, get_connection,
-    get_user_preferences, update_user_preferences
+    get_user_preferences, update_user_preferences,
+    get_user_avatar, update_user_avatar
 )
 
 # 页面配置
@@ -183,7 +184,20 @@ def main_app():
     with col1:
         st.markdown(f'<h1 class="main-title">🍽️ HoneyEat</h1>', unsafe_allow_html=True)
     with col2:
-        st.write(f"👤 {st.session_state.current_user['name']}")
+        user_id = st.session_state.current_user['username']
+        if user_id != 'guest':
+            avatar = get_user_avatar(user_id)
+            if avatar:
+                img_col, name_col = st.columns([1, 2])
+                with img_col:
+                    st.image(avatar, width=48)
+                with name_col:
+                    st.write(f"**{st.session_state.current_user['name']}**")
+            else:
+                st.write(f"👤 {st.session_state.current_user['name']}")
+        else:
+            st.write(f"👤 {st.session_state.current_user['name']}")
+
         if st.button("退出登录", key="logout_top"):
             st.session_state.logged_in = False
             st.session_state.current_user = None
@@ -238,7 +252,7 @@ def show_health_checkin():
     cursor.execute("""
         SELECT * FROM health_checkin 
         WHERE date = ? AND user_id = ?
-    """, (today, user_id))
+    """, (today.isoformat(), user_id))
     
     checkin = cursor.fetchone()
     water_checked = checkin['water_checked'] if checkin else 0
@@ -257,12 +271,12 @@ def show_health_checkin():
                 UPDATE health_checkin 
                 SET water_checked = ?, fruit_checked = ?
                 WHERE date = ? AND user_id = ?
-            """, (int(water), int(fruit), today, user_id))
+            """, (int(water), int(fruit), today.isoformat(), user_id))
         else:
             cursor.execute("""
                 INSERT INTO health_checkin (date, user_id, water_checked, fruit_checked)
                 VALUES (?, ?, ?, ?)
-            """, (today, user_id, int(water), int(fruit)))
+            """, (today.isoformat(), user_id, int(water), int(fruit)))
         conn.commit()
     
     conn.close()
@@ -284,7 +298,7 @@ def show_health_reminder():
         LEFT JOIN foods f ON e.food_id = f.id
         WHERE e.user_id = ? AND e.date >= ?
         GROUP BY f.health_tag
-    """, (user_id, three_days_ago))
+    """, (user_id, three_days_ago.isoformat()))
     
     tags = dict(cursor.fetchall())
     conn.close()
@@ -378,24 +392,19 @@ def smart_recommendation_page():
         show_food_result_v2(st.session_state.recommended_food, st.session_state.recommended_time)
 
 def get_smart_recommendation_v2(time_of_day, mood, appetite, flavor_prefer, time_constraint, exclude_recent=False):
-    """基于多维度问答的智能推荐算法 v2"""
+    """基于多维度问答的智能推荐算法 v3 (逻辑增强版)"""
     conn = get_connection()
     cursor = conn.cursor()
     user_id = st.session_state.current_user['username']
     user_prefs = get_user_preferences(user_id)
     
-    # 构建基础查询
+    # 1. 构建基础查询，排除最近吃过的
     query = "SELECT * FROM foods WHERE active = 1"
     params = []
-    
-    # 排除最近吃过的
     if exclude_recent:
         three_days_ago = (datetime.now() - timedelta(days=3)).date()
-        query += """ AND id NOT IN (
-            SELECT food_id FROM eat_history 
-            WHERE user_id = ? AND date >= ?
-        )"""
-        params.extend([user_id, three_days_ago])
+        query += " AND id NOT IN (SELECT food_id FROM eat_history WHERE user_id = ? AND date >= ?)"
+        params.extend([user_id, three_days_ago.isoformat()])
     
     cursor.execute(query, params)
     foods = [dict(row) for row in cursor.fetchall()]
@@ -404,169 +413,170 @@ def get_smart_recommendation_v2(time_of_day, mood, appetite, flavor_prefer, time
     if not foods:
         return None
     
-    # 获取用户黑名单
+    # 2. 获取用户偏好和黑名单
     blacklist = user_prefs.get('blacklist', [])
     avoid_categories = user_prefs.get('avoid_category', [])
     favorite_categories = user_prefs.get('favorite_category', [])
     health_mode = user_prefs.get('health_mode', '普通模式')
     
-    # 智能评分系统
+    # 3. 智能评分系统
     scored_foods = []
-    
     for food in foods:
-        # 黑名单过滤
-        if food['name'] in blacklist:
-            continue
-        
-        # 不喜欢的分类过滤
-        if food['category'] in avoid_categories:
+        # 黑名单和分类过滤
+        if food['name'] in blacklist or food['category'] in avoid_categories:
             continue
         
         score = 50  # 基础分
         reasons = []
+        food_name = food['name']
+        food_cat = food['category']
+        food_tag = food.get('health_tag', '')
+
+        # --- 组合规则 (高优先级) ---
+        if time_of_day == "早餐时间" and time_constraint == "很赶时间":
+            if food_cat in ['早餐', '速食', '轻食'] or any(k in food_name for k in ['包子', '面包', '三明治', '手抓饼']):
+                score += 50
+                reasons.append("为你找到了方便快捷的早餐")
         
-        # 0. 根据时间段调整（维度1）
+        # --- 维度1: 时间段 (time_of_day) ---
         if time_of_day == "早餐时间":
-            if food['category'] in ['速食', '零食饮料'] or '粥' in food['name'] or '蛋' in food['name']:
-                score += 30
-                reasons.append("早餐就要吃得营养简单")
-            elif food['category'] in ['大餐', '火锅']:
-                score -= 20
+            if food_cat in ['早餐', '速食'] or any(k in food_name for k in ['粥', '蛋', '包子', '面包']):
+                score += 35
+                reasons.append("这个当早餐很不错")
+            elif food_cat in ['大餐', '火锅', '烧烤', '中餐']:
+                score -= 50 # 大幅降低不合适早餐的权重
         elif time_of_day == "午餐时间":
-            if food['category'] in ['中餐', '家常菜', '快餐', '米饭类', '面食']:
+            if food_cat in ['中餐', '家常菜', '快餐'] or any(k in food_name for k in ['饭', '面']):
                 score += 25
-                reasons.append("午餐吃这个刚刚好")
+                reasons.append("午餐吃这个能补充能量")
         elif time_of_day == "下午茶":
-            if food['category'] in ['甜品', '零食饮料', '轻食']:
-                score += 30
-                reasons.append("下午茶时间来点甜的提提神")
-            elif food['category'] in ['米饭类', '面食']:
-                score -= 15
-        elif time_of_day == "晚餐时间":
-            if food['category'] in ['中餐', '西餐', '日料', '大餐', '家常菜']:
-                score += 25
-                reasons.append("晚餐可以吃得丰盛一点")
-        elif time_of_day == "夜宵时间":
-            if food['category'] in ['快餐', '速食', '烧烤', '零食饮料'] or '面' in food['name']:
-                score += 25
-                reasons.append("夜宵吃这个最舒服")
-            elif food['category'] in ['大餐']:
-                score -= 10
-        
-        # 1. 根据心情调整（维度2）
-        if mood == "开心愉悦":
-            if food['category'] in ['甜品', '零食饮料']:
-                score += 20
-                reasons.append("开心的时候来点甜的更幸福")
-        elif mood == "有点累":
-            if food['health_tag'] == 'Healthy' or '粥' in food['name']:
-                score += 25
-                reasons.append("累了就吃点清淡养胃的")
-        elif mood == "压力山大":
-            if food['health_tag'] == 'CheatMeal' or food['category'] in ['大餐', '快餐']:
-                score += 30
-                reasons.append("压力大就吃点爽的，犒劳一下自己")
-        elif mood == "平静放松":
-            if food['category'] in ['家常菜', '轻食']:
-                score += 20
-                reasons.append("心情平静适合吃点家常味道")
-        elif mood == "兴奋期待":
-            if food['category'] in ['日料', '西餐', '大餐']:
-                score += 25
-                reasons.append("兴奋的心情配上特别的美食")
-        
-        # 2. 根据食欲调整（维度3）
-        if appetite == "特别饿":
-            if food['category'] in ['快餐', '米饭类', '面食']:
-                score += 20
-                reasons.append("饿的时候吃这个最管饱")
-        elif appetite == "不太饿":
-            if food['category'] in ['轻食', '甜品', '零食饮料']:
-                score += 20
-                reasons.append("不太饿就吃点轻的")
-        elif appetite == "想吃点特别的":
-            if food['category'] in ['日料', '西餐', '大餐']:
-                score += 25
-                reasons.append("特别的日子吃点特别的")
-        
-        # 3. 根据口味偏好（维度4）
-        if flavor_prefer == "清淡健康":
-            if food['health_tag'] == 'Healthy':
-                score += 30
-                reasons.append("健康清淡正合适")
-            elif food['health_tag'] in ['Spicy', 'CheatMeal']:
+            if food_cat in ['甜品', '零食饮料', '轻食', '小吃']:
+                score += 40
+                reasons.append("下午茶时间，享受片刻悠闲")
+            elif food_cat in ['大餐', '家常菜']:
                 score -= 20
-        elif flavor_prefer == "重口味":
-            if food['health_tag'] == 'Spicy' or '麻辣' in food['name'] or '火锅' in food['name']:
-                score += 30
-                reasons.append("重口味就是要够劲")
-        elif flavor_prefer == "酸甜口":
-            if '糖醋' in food['name'] or food['category'] in ['甜品', '水果']:
+        elif time_of_day == "晚餐时间":
+            if food_cat in ['中餐', '西餐', '日料', '大餐', '家常菜', '烧烤']:
                 score += 25
-                reasons.append("酸酸甜甜就是你")
-        elif flavor_prefer == "香辣刺激":
-            if food['health_tag'] == 'Spicy' or '辣' in food['name']:
+                reasons.append("晚餐值得吃顿好的")
+        elif time_of_day == "夜宵时间":
+            if food_cat in ['烧烤', '速食', '小吃', '零食饮料'] or '面' in food_name:
+                score += 40
+                reasons.append("深夜的美味最治愈")
+            elif food_cat in ['大餐', '西餐']:
+                score -= 20
+
+        # --- 维度2: 心情 (mood) ---
+        if mood == "开心愉悦":
+            if food_cat in ['甜品', '大餐', '零食饮料']:
+                score += 20
+                reasons.append("开心就该吃点好的")
+        elif mood == "有点累":
+            if food_tag == 'Healthy' or '粥' in food_name or '汤' in food_name:
+                score += 25
+                reasons.append("有点累了，吃点健康的恢复一下")
+        elif mood == "压力山大":
+            if food_tag == 'CheatMeal' or food_cat in ['大餐', '快餐', '烧烤', '甜品']:
                 score += 30
-                reasons.append("辣味刺激爽到飞起")
-        
-        # 4. 根据时间约束（维度5）
+                reasons.append("用美食来释放所有压力吧")
+        elif mood == "平静放松":
+            if food_cat in ['家常菜', '轻食', '日料'] or food_tag == 'Light':
+                score += 20
+                reasons.append("平静的心情适合品尝细腻的味道")
+
+        # --- 维度3: 食欲 (appetite) ---
+        if appetite == "特别饿":
+            if food_tag == 'CheatMeal' or food_cat in ['快餐', '大餐', '烧烤'] or any(k in food_name for k in ['饭', '面', '汉堡']):
+                score += 30
+                reasons.append("饿的时候，就该吃点管饱的")
+        elif appetite == "不太饿":
+            if food_cat in ['轻食', '甜品', '零食饮料', '小吃'] or food_tag == 'Light':
+                score += 25
+                reasons.append("不太饿？来点小吃或轻食刚刚好")
+        elif appetite == "想吃点特别的":
+            if food_cat in ['日料', '西餐', '大餐'] or food.get('cost_level') == '$$$':
+                score += 30
+                reasons.append("满足你对特别美食的渴望")
+
+        # --- 维度4: 口味 (flavor_prefer) ---
+        if flavor_prefer == "清淡健康":
+            if food_tag in ['Healthy', 'Light']:
+                score += 30
+            elif food_tag in ['Spicy', 'CheatMeal'] or food_cat == '烧烤':
+                score -= 25
+        elif flavor_prefer == "重口味" or flavor_prefer == "香辣刺激":
+            if food_tag == 'Spicy' or any(k in food_name for k in ['辣', '麻', '香锅', '火锅']):
+                score += 40
+                reasons.append("够味才过瘾")
+        elif flavor_prefer == "酸甜口":
+            if food_tag == 'Sweet' or any(k in food_name for k in ['糖醋', '咕咾', '番茄']):
+                score += 25
+                reasons.append("酸酸甜甜就是我")
+
+        # --- 维度5: 时间约束 (time_constraint) ---
         if time_constraint == "很赶时间":
-            if food['category'] in ['快餐', '速食', '零食饮料']:
-                score += 20
-                reasons.append("时间紧张选这个最快")
+            if food_cat in ['快餐', '速食', '小吃', '轻食', '零食饮料']:
+                score += 35
+                reasons.append("时间紧，吃这个最快")
         elif time_constraint == "时间充裕":
-            if food['category'] in ['家常菜', '大餐']:
+            if food_cat in ['家常菜', '大餐', '西餐', '日料']:
                 score += 15
-                reasons.append("有时间可以慢慢享受")
-        
-        # 5. 用户个人偏好加权（设置页面配置）
-        if not user_prefs.get('spicy') and food.get('health_tag') == 'Spicy':
-            score -= 15
-            reasons.append("但是你不太喜欢辣") if score > 30 else None
-        if user_prefs.get('sweet') and '甜' in food['name']:
-            score += 10
-        if user_prefs.get('vegetarian') and '肉' in food['name']:
-            score -= 30  # 素食主义者大幅降低肉类
-        
-        # 6. 喜止分类加权
-        if food['category'] in favorite_categories:
+                reasons.append("时间充裕，值得慢慢享受")
+
+        # --- 维度6: 用户个人偏好 (user_prefs) ---
+        if not user_prefs.get('spicy') and food_tag == 'Spicy':
+            score -= 20
+        if user_prefs.get('sweet') and food_tag == 'Sweet':
             score += 15
-            reasons.append(f"你喜欢{food['category']}")
+        if food_cat in favorite_categories:
+            score += 20
+            reasons.append(f"还是你最爱的{food_cat}")
         
-        # 7. 健康模式调整
+        # --- 维度7: 健康模式 (health_mode) ---
         if health_mode == "健康模式":
-            if food['health_tag'] == 'Healthy':
-                score += 20
-            elif food['health_tag'] == 'CheatMeal':
-                score -= 15
+            if food_tag == 'Healthy':
+                score += 25
+            elif food_tag == 'CheatMeal':
+                score -= 20
         elif health_mode == "放纵模式":
-            if food['health_tag'] == 'CheatMeal':
-                score += 15
-                reasons.append("今天放纵一下")
+            if food_tag == 'CheatMeal':
+                score += 20
+                reasons.append("今天就要放纵一下")
         
-        scored_foods.append({
-            'food': food,
-            'score': score,
-            'reasons': [r for r in reasons if r]  # 过滤空值
-        })
+        scored_foods.append({'food': food, 'score': score, 'reasons': list(set(reasons))})
     
     if not scored_foods:
         return None
     
-    # 选择得分最高的（加入一定随机性）
+    # 4. 选择得分最高的候选者（加入随机性）
     scored_foods.sort(key=lambda x: x['score'], reverse=True)
-    top_candidates = scored_foods[:3]  # 取前3名
+    top_candidates = scored_foods[:5] # 扩大候选范围
     
-    if top_candidates:
-        selected = random.choice(top_candidates)
-        reason = "、".join(selected['reasons'][:2]) if selected['reasons'] else "这个应该不错"
-        return {
-            'food': selected['food'],
-            'reason': f"💡 {reason}！",
-            'score': selected['score']  # 返回分数供调试
-        }
+    if not top_candidates:
+        return None
+
+    # 从最高分的几个候选者中，根据分数加权随机选择一个，避免每次都推荐同一个
+    scores = [c['score'] for c in top_candidates]
+    # 简单处理，避免分数为0或负数
+    weights = [max(s, 1) for s in scores]
     
-    return None
+    selected = random.choices(top_candidates, weights=weights, k=1)[0]
+    
+    reason_text = "这个应该不错"
+    if selected['reasons']:
+        # 优先选择与用户输入最相关的理由
+        primary_reason = selected['reasons'][0]
+        other_reasons = [r for r in selected['reasons'][1:] if "你最爱" not in r] # 过滤通用理由
+        if other_reasons:
+            reason_text = f"{primary_reason}，而且{random.choice(other_reasons)}"
+        else:
+            reason_text = primary_reason
+
+    return {
+        'food': selected['food'],
+        'reason': f"💡 {reason_text}！",
+        'score': selected['score']
+    }
 
 # ============ 美食大乱斗 ============
 def food_pk_page():
@@ -790,7 +800,7 @@ def calendar_page():
         FROM eat_history
         WHERE user_id = ? AND date >= ?
         ORDER BY date DESC, created_at DESC
-    """, (user_id, thirty_days_ago))
+    """, (user_id, thirty_days_ago.isoformat()))
     
     records = cursor.fetchall()
     conn.close()
@@ -1223,19 +1233,45 @@ def settings_page():
     # ==== 账户信息 ====
     with tabs[4]:
         st.write("#### 👤 账户信息")
-        
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = ?", (user_id,))
-        user_row = cursor.fetchone()
-        conn.close()
-        
-        if user_row:
-            user_info = dict(user_row)  # 转换为字典
-            st.write(f"**用户名**: {user_info['username']}")
-            st.write(f"**注册时间**: {user_info.get('created_at', '未知')}")
+
+        if user_id == 'guest':
+            st.warning("访客模式不支持上传头像。")
         else:
-            st.error("用户信息不存在")
+            # 显示当前头像
+            avatar = get_user_avatar(user_id)
+            if avatar:
+                st.image(avatar, caption="当前头像", width=128)
+            else:
+                st.caption("你还没有设置头像")
+
+            # 上传新头像
+            uploaded_avatar = st.file_uploader(
+                "上传新头像", 
+                type=['png', 'jpg', 'jpeg'],
+                accept_multiple_files=False,
+                key="avatar_uploader"
+            )
+            if uploaded_avatar is not None:
+                avatar_data = uploaded_avatar.getvalue()
+                update_user_avatar(user_id, avatar_data)
+                st.success("✅ 头像更新成功！")
+                time.sleep(0.5)
+                st.rerun()
+
+            st.divider()
+            
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE username = ?", (user_id,))
+            user_row = cursor.fetchone()
+            conn.close()
+            
+            if user_row:
+                user_info = dict(user_row)  # 转换为字典
+                st.write(f"**用户名**: {user_info['username']}")
+                st.write(f"**注册时间**: {user_info.get('created_at', '未知')}")
+            else:
+                st.error("用户信息不存在")
         
         st.divider()
         
@@ -1311,7 +1347,7 @@ def show_food_result_v2(food, time_of_day):
                 INSERT INTO eat_history (date, meal_time, food_id, food_name, user_id, rating, mode)
                 VALUES (?, ?, ?, ?, ?, ?, 'smart')
             """, (
-                datetime.now().date(),
+                datetime.now().date().isoformat(),
                 auto_meal_time,  # 使用自动推断的餐次
                 food['id'],
                 food['name'],
@@ -1369,7 +1405,7 @@ def show_food_result(food):
             INSERT INTO eat_history (date, meal_time, food_id, food_name, user_id, rating, mode)
             VALUES (?, ?, ?, ?, ?, ?, 'random')
         """, (
-            datetime.now().date(),
+            datetime.now().date().isoformat(),
             meal_time,
             food['id'],
             food['name'],
