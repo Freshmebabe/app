@@ -1,6 +1,7 @@
 import streamlit as st
 import random
 import time
+import base64
 from collections import defaultdict
 from datetime import datetime, timedelta
 from database import (
@@ -100,6 +101,28 @@ st.markdown("""
         border-radius: 4px;
         margin: 1rem 0;
     }
+
+    /* 头像样式 */
+    .user-nav-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+    .avatar-image {
+        width: 128px;
+        height: 128px;
+        border-radius: 50%;
+        object-fit: cover;
+        margin-bottom: 0.5rem;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    .user-nav-name {
+        font-weight: bold;
+        text-align: center;
+    }
     
     /* 隐藏streamlit默认元素 */
     #MainMenu {visibility: hidden;}
@@ -188,11 +211,12 @@ def main_app():
         if user_id != 'guest':
             avatar = get_user_avatar(user_id)
             if avatar:
-                img_col, name_col = st.columns([1, 2])
-                with img_col:
-                    st.image(avatar, width=48)
-                with name_col:
-                    st.write(f"**{st.session_state.current_user['name']}**")
+                img_str = base64.b64encode(avatar).decode()
+                st.markdown(
+                    f'<img src="data:image/png;base64,{img_str}" class="avatar-image">',
+                    unsafe_allow_html=True
+                )
+                st.write(f"**{st.session_state.current_user['name']}**")
             else:
                 st.write(f"👤 {st.session_state.current_user['name']}")
         else:
