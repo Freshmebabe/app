@@ -229,11 +229,12 @@ def main_app():
             else:
                 st.markdown('<div style="font-size: 72px; text-align: center;">👤</div>', unsafe_allow_html=True) # 游客图标
                 st.markdown(f"<div class='user-nav-name'>{st.session_state.current_user['name']}</div>", unsafe_allow_html=True)
-
+            
             if st.button("退出登录", key="logout_top"):
                 st.session_state.logged_in = False
                 st.session_state.current_user = None
                 st.rerun()
+
             st.markdown('</div>', unsafe_allow_html=True)
     
     # 健康打卡栏
