@@ -119,6 +119,10 @@ st.markdown("""
         margin-left: auto;
         margin-right: auto;
     }
+    .user-nav-logout-btn {
+        width: 120px; /* 设置一个固定宽度或相对宽度 */
+        margin-top: 0.5rem;
+    }
     .user-nav-name {
         font-weight: bold;
         text-align: center;
@@ -207,27 +211,30 @@ def main_app():
     with col1:
         st.markdown(f'<h1 class="main-title">🍽️ HoneyEat</h1>', unsafe_allow_html=True)
     with col2:
-        user_id = st.session_state.current_user['username']
-        if user_id != 'guest':
-            avatar = get_user_avatar(user_id)
-            if avatar:
-                img_str = base64.b64encode(avatar).decode()
-                st.markdown(
-                    f'<img src="data:image/png;base64,{img_str}" class="avatar-image">',
-                    unsafe_allow_html=True
-                )
-                st.write(f"**{st.session_state.current_user['name']}**")
+        with st.container():
+            st.markdown('<div class="user-nav-container">', unsafe_allow_html=True)
+            
+            user_id = st.session_state.current_user['username']
+            if user_id != 'guest':
+                avatar = get_user_avatar(user_id)
+                if avatar:
+                    img_str = base64.b64encode(avatar).decode()
+                    st.markdown(
+                        f'<img src="data:image/png;base64,{img_str}" class="avatar-image">',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown('<div style="font-size: 72px; text-align: center;">👤</div>', unsafe_allow_html=True) # 默认图标
+                st.markdown(f"<div class='user-nav-name'>{st.session_state.current_user['name']}</div>", unsafe_allow_html=True)
             else:
-                st.write(f"👤 {st.session_state.current_user['name']}")
-        else:
-            st.write(f"👤 {st.session_state.current_user['name']}")
+                st.markdown('<div style="font-size: 72px; text-align: center;">👤</div>', unsafe_allow_html=True) # 游客图标
+                st.markdown(f"<div class='user-nav-name'>{st.session_state.current_user['name']}</div>", unsafe_allow_html=True)
 
-        if st.button("退出登录", key="logout_top"):
-            st.session_state.logged_in = False
-            st.session_state.current_user = None
-            st.session_state.recommended_food = None
-            st.session_state.pk_round = []
-            st.rerun()
+            if st.button("退出登录", key="logout_top"):
+                st.session_state.logged_in = False
+                st.session_state.current_user = None
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
     
     # 健康打卡栏
     show_health_checkin()
