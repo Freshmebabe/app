@@ -110,8 +110,8 @@ st.markdown("""
         text-align: center;
     }
     .avatar-image {
-        width: 128px;
-        height: 128px;
+        width: 108px;
+        height: 108px;
         border-radius: 50%;
         object-fit: cover;
         margin-bottom: 0.5rem;
