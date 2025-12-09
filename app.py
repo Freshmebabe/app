@@ -143,9 +143,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 初始化数据库
-init_default_data()
-
 # Session state 初始化
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
