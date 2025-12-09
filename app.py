@@ -874,7 +874,7 @@ def digital_pantry_page():
         
         if items:
             # 表头
-            col_h1, col_h2, col_h3 = st.columns([4, 3, 1])
+            col_h1, col_h2, col_h3 = st.columns([10, 4, 3])
             with col_h1:
                 st.caption("食材")
             with col_h2:
@@ -884,20 +884,20 @@ def digital_pantry_page():
             st.divider()
 
             for item in items:
-                col1, col2, col3, col4, col5 = st.columns([4, 1, 1, 1, 1])
+                col1, col2, col3, col4, col5 = st.columns([10, 4, 1, 1, 1])
                 with col1:
                     st.markdown(f"<div style='padding-top: 8px;'>{item['food_name']}</div>", unsafe_allow_html=True)
                 with col2:
+                    st.markdown(f"<div style='text-align: center; padding-top: 8px; font-weight: bold;'>{item['quantity']}</div>", unsafe_allow_html=True)
+                with col3:
                     if st.button("➖", key=f"decr_pantry_{item['id']}", use_container_width=True):
                         new_qty = item['quantity'] - 1
                         if new_qty > 0:
                             cursor.execute("UPDATE pantry SET quantity = ? WHERE id = ?", (new_qty, item['id']))
-                        else: # 如果数量为0，则直接删除
+                        else:
                             cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
                         conn.commit()
                         st.rerun()
-                with col3:
-                    st.markdown(f"<div style='text-align: center; padding-top: 8px; font-weight: bold;'>{item['quantity']}</div>", unsafe_allow_html=True)
                 with col4:
                     if st.button("➕", key=f"incr_pantry_{item['id']}", use_container_width=True):
                         cursor.execute("UPDATE pantry SET quantity = quantity + 1 WHERE id = ?", (item['id'],))
@@ -913,13 +913,13 @@ def digital_pantry_page():
         
         st.divider()
         st.write("#### 添加库存")
-        col_a, col_b, col_c = st.columns(3)
+        col_a, col_b, col_c = st.columns([5, 2, 2])
         with col_a:
-            new_food = st.text_input("食材名称")
+            new_food = st.text_input("食材名称", label_visibility="collapsed", placeholder="输入食材名称...")
         with col_b:
-            new_qty = st.number_input("数量", min_value=1, value=1)
+            new_qty = st.number_input("数量", min_value=1, value=1, label_visibility="collapsed")
         with col_c:
-            if st.button("➕ 添加", key="add_pantry_item"):
+            if st.button("➕ 添加到冰箱", key="add_pantry_item", use_container_width=True):
                 if new_food:
                     cursor.execute("""
                         INSERT INTO pantry (food_name, quantity, status, user_id)
