@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
 from database import (
-    get_connection, initialize_and_seed_database, verify_user, 
+    get_db, verify_user, 
     get_user_preferences, update_user_preferences, get_user_avatar, update_user_avatar, update_password
 ) 
 
@@ -160,25 +160,11 @@ if 'recommended_time' not in st.session_state:
 if 'show_logout_confirmation' not in st.session_state:
     st.session_state.show_logout_confirmation = False
 
-# ============ 数据库初始化检查 ============
-def ensure_db_initialized():
-    """确保数据库文件和表存在，如果不存在则创建并填充数据"""
-    from pathlib import Path
-
-    db_path = Path("honeyeat.db")
-    if not db_path.exists():
-        st.toast("数据库不存在，正在进行首次初始化...")
-        initialize_and_seed_database()
-        st.toast("✅ 数据库初始化完成！")
-
-ensure_db_initialized()
-
-# ============ 数据库连接管理 (建议的优化) ============
+# ============ 数据库连接管理 ============
 @st.cache_resource
 def get_db_connection():
-    """使用 Streamlit 缓存来管理数据库连接"""
-    conn = get_connection()
-    return conn
+    """使用 Streamlit 缓存来管理数据库连接，并在需要时进行初始化。"""
+    return get_db()
 
 # ============ 登录界面 ============
 def login_page():
