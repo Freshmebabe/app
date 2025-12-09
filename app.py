@@ -11,7 +11,7 @@ from database import ( # 移除了 init_default_data
     verify_user, get_connection,
     get_user_preferences, update_user_preferences,
     get_user_avatar, update_user_avatar
-)
+) 
 
 # 页面配置
 st.set_page_config(
