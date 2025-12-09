@@ -1,5 +1,4 @@
 import sqlite3
-import hashlib
 import json
 from datetime import datetime
 import os
@@ -26,7 +25,7 @@ def initialize_and_seed_database(conn):
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             name TEXT NOT NULL,
-            password_hash TEXT NOT NULL,
+            password TEXT NOT NULL,
             preferences TEXT DEFAULT '{}',
             avatar BLOB,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -38,6 +37,11 @@ def initialize_and_seed_database(conn):
     columns = [info[1] for info in cursor.fetchall()]
     if 'avatar' not in columns:
         cursor.execute("ALTER TABLE users ADD COLUMN avatar BLOB")
+    # 兼容性修改：如果旧的 password_hash 列存在，则重命名为 password
+    if 'password_hash' in columns and 'password' not in columns:
+        # 在重命名之前，需要禁用外键约束
+        cursor.execute("PRAGMA foreign_keys=off")
+        cursor.execute("ALTER TABLE users RENAME COLUMN password_hash TO password")
     
     # 食物全库
     cursor.execute("""
@@ -142,14 +146,14 @@ def initialize_and_seed_database(conn):
     
     # 默认用户
     default_users = [
-        ("admin", "管理员", hash_password("admin123"), json.dumps({"role": "admin"})),
-        ("bf", "男朋友", hash_password("bf123"), json.dumps({"spicy": True, "sweet": False})),
-        ("gf", "女朋友", hash_password("gf123"), json.dumps({"spicy": False, "sweet": True})),
+        ("admin", "管理员", "admin123", json.dumps({"role": "admin"})),
+        ("bf", "男朋友", "bf123", json.dumps({"spicy": True, "sweet": False})),
+        ("gf", "女朋友", "gf123", json.dumps({"spicy": False, "sweet": True})),
     ]
     try:
         cursor.executemany("""
-            INSERT OR IGNORE INTO users (username, name, password_hash, preferences)
-            VALUES (?, ?, ?, ?)
+            INSERT OR IGNORE INTO users (username, name, password, preferences)
+            VALUES (?, ?, ?, ?) ON CONFLICT(username) DO NOTHING
         """, default_users)
     except Exception as e:
         print(f"插入默认用户数据出错: {e}")
@@ -298,31 +302,18 @@ def initialize_and_seed_database(conn):
     # --- 步骤 3: 提交并关闭 ---
     conn.commit()
 
-def hash_password(password):
-    pwd_hash = hash_password(password)
-    
-    try:
-        cursor.execute(
-            "INSERT INTO users (username, name, password_hash, preferences) VALUES (?, ?, ?, ?)",
-            (username, name, pwd_hash, prefs)
-        )
-        return True
-    except sqlite3.IntegrityError:
-        # INSERT OR IGNORE 应该可以避免这个，但作为备用
-        return False
-
 def create_user(conn, username, name, password, preferences=None):
     """创建用户"""
     cursor = conn.cursor()
     
     prefs = json.dumps(preferences or {})
-    pwd_hash = hash_password(password)
     
     try:
         cursor.execute(
-            "INSERT INTO users (username, name, password_hash, preferences) VALUES (?, ?, ?, ?)",
-            (username, name, pwd_hash, prefs)
+            "INSERT INTO users (username, name, password, preferences) VALUES (?, ?, ?, ?)",
+            (username, name, password, prefs)
         )
+        conn.commit()
         return True
     except sqlite3.IntegrityError:
         return False
@@ -330,11 +321,7 @@ def create_user(conn, username, name, password, preferences=None):
 def verify_user(conn, username, password):
     """验证用户登录"""    
     cursor = conn.cursor()
-    
-    pwd_hash = hash_password(password)
-    cursor.execute("""
-        SELECT * FROM users WHERE username = ? AND password_hash = ?
-    """, (username, pwd_hash))
+    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
     
     user = cursor.fetchone()
     
@@ -396,9 +383,8 @@ def get_user_avatar(conn, username):
 def update_password(conn, username, new_password):
     """更新用户密码"""
     cursor = conn.cursor()
-    new_pwd_hash = hash_password(new_password)
     try:
-        cursor.execute("UPDATE users SET password_hash = ? WHERE username = ?", (new_pwd_hash, username))
+        cursor.execute("UPDATE users SET password = ? WHERE username = ?", (new_password, username))
         conn.commit()
         return True
     except Exception as e:
