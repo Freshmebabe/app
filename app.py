@@ -6,7 +6,6 @@ import base64
 from collections import defaultdict
 import pandas as pd
 import plotly.express as px
-from st_cookies_manager import EncryptedCookieManager
 from datetime import datetime, timedelta
 from database import (
     init_default_data, verify_user, get_connection,
@@ -147,37 +146,6 @@ st.markdown("""
 # 初始化数据库
 init_default_data()
 
-# 在脚本顶部初始化 Cookie Manager
-# 强烈建议将 password 设置为环境变量或 Streamlit secrets
-# 以保证安全性，此处为演示目的使用硬编码
-cookies = EncryptedCookieManager(
-    password="a_very_strong_password_that_is_at_least_32_bytes_long",
-    prefix="honeyeat_app_"
-)
-
-# 将 cookie manager 存入 session state，以便在各处调用
-if 'cookies' not in st.session_state:
-    st.session_state.cookies = cookies
-
-# 检查 "记住我" 的 cookie
-def auto_login_with_cookie():
-    if not st.session_state.get('logged_in') and cookies.ready():
-        remembered_username = cookies.get("remember_me_username")
-        if remembered_username:
-            try:
-                conn = get_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM users WHERE username = ?", (remembered_username,))
-                user_data = cursor.fetchone()
-                conn.close()
-
-                if user_data:
-                    st.session_state.logged_in = True
-                    st.session_state.current_user = dict(user_data)
-            except Exception as e:
-                st.error(f"自动登录失败: {e}")
-                pass
-
 # Session state 初始化
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -200,11 +168,6 @@ if 'show_logout_confirmation' not in st.session_state:
 def login_page():
     st.markdown('<h1 class="main-title">🍽️ HoneyEat</h1>', unsafe_allow_html=True)
 
-    # 游客模式下，如果cookie存在，先清除
-    if 'cookies' in st.session_state and st.session_state.cookies.ready() and st.session_state.cookies.get('remember_me_username'):
-        st.session_state.cookies['remember_me_username'] = ''
-        st.session_state.cookies.save()
-
     st.markdown('<p style="text-align:center; color:#7f8c8d;">亲爱的，今天吃什么？</p>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -212,7 +175,6 @@ def login_page():
         st.write("### 请登录")
         username = st.text_input("用户名", key="login_username")
         password = st.text_input("密码", type="password", key="login_password")
-        remember_me = st.checkbox("记住我 (30天)", key="remember_me_checkbox")
         
         col_a, col_b = st.columns(2)
         with col_a:
@@ -223,15 +185,6 @@ def login_page():
                         st.session_state.logged_in = True
                         st.session_state.current_user = user
                         st.success(f"欢迎回来，{user['name']}！")
-
-                        if remember_me:
-                            # 设置cookie，有效期30天
-                            if st.session_state.cookies.ready():
-                                st.session_state.cookies['remember_me_username'] = user['username']
-                                st.session_state.cookies.save(expires_at=datetime.now() + timedelta(days=30))
-                            else:
-                                # 在极少数情况下，如果此时cookie仍未就绪，可以给一个提示
-                                st.toast("Cookie 功能正在初始化，'记住我' 可能不会立即生效。")
                         time.sleep(0.5)
                         st.rerun()
                     else:
@@ -301,9 +254,6 @@ def main_app():
                 btn_col1, btn_col2 = st.columns(2)
                 with btn_col1:
                     if st.button("确认", key="confirm_logout_dialog", use_container_width=True, type="primary"):
-                        if 'cookies' in st.session_state and st.session_state.cookies.ready() and st.session_state.cookies.get('remember_me_username'):
-                            st.session_state.cookies['remember_me_username'] = ''
-                            st.session_state.cookies.save()
                         st.session_state.logged_in = False
                         st.session_state.current_user = None
                         st.session_state.show_logout_confirmation = False
@@ -1749,7 +1699,7 @@ def show_food_result(food, key_prefix="general"):
         st.success("✅ 已记录到饮食日历！")
     
     # 显示菜谱链接
-    if food.get('recipe_link'):
+    if dict(food).get('recipe_link'):
         st.write(f"📖 [查看菜谱]({food['recipe_link']})")
 
 # ============ 主入口 ============
