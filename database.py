@@ -334,7 +334,7 @@ def create_user(conn, username, name, password, preferences=None):
         return False
 
 def verify_user(conn, username, password):
-    """验证用户登录"""
+    """验证用户登录"""    
     cursor = conn.cursor()
     
     pwd_hash = hash_password(password)
