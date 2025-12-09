@@ -1,8 +1,12 @@
 import streamlit as st
 import random
 import time
+import json
 import base64
 from collections import defaultdict
+import pandas as pd
+import plotly.express as px
+from st_cookies_manager import EncryptedCookieManager
 from datetime import datetime, timedelta
 from database import (
     init_default_data, verify_user, get_connection,
@@ -143,6 +147,37 @@ st.markdown("""
 # 初始化数据库
 init_default_data()
 
+# 在脚本顶部初始化 Cookie Manager
+# 强烈建议将 password 设置为环境变量或 Streamlit secrets
+# 以保证安全性，此处为演示目的使用硬编码
+cookies = EncryptedCookieManager(
+    password="a_very_strong_password_that_is_at_least_32_bytes_long",
+    prefix="honeyeat_app_"
+)
+
+# 将 cookie manager 存入 session state，以便在各处调用
+if 'cookies' not in st.session_state:
+    st.session_state.cookies = cookies
+
+# 检查 "记住我" 的 cookie
+def auto_login_with_cookie():
+    if not st.session_state.get('logged_in') and cookies.ready():
+        remembered_username = cookies.get("remember_me_username")
+        if remembered_username:
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users WHERE username = ?", (remembered_username,))
+                user_data = cursor.fetchone()
+                conn.close()
+
+                if user_data:
+                    st.session_state.logged_in = True
+                    st.session_state.current_user = dict(user_data)
+            except Exception as e:
+                st.error(f"自动登录失败: {e}")
+                pass
+
 # Session state 初始化
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -158,10 +193,18 @@ if 'recommended_reason' not in st.session_state:
     st.session_state.recommended_reason = ""
 if 'recommended_time' not in st.session_state:
     st.session_state.recommended_time = ""
+if 'show_logout_confirmation' not in st.session_state:
+    st.session_state.show_logout_confirmation = False
 
 # ============ 登录界面 ============
 def login_page():
     st.markdown('<h1 class="main-title">🍽️ HoneyEat</h1>', unsafe_allow_html=True)
+
+    # 游客模式下，如果cookie存在，先清除
+    if 'cookies' in st.session_state and st.session_state.cookies.ready() and st.session_state.cookies.get('remember_me_username'):
+        st.session_state.cookies['remember_me_username'] = ''
+        st.session_state.cookies.save()
+
     st.markdown('<p style="text-align:center; color:#7f8c8d;">亲爱的，今天吃什么？</p>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -169,6 +212,7 @@ def login_page():
         st.write("### 请登录")
         username = st.text_input("用户名", key="login_username")
         password = st.text_input("密码", type="password", key="login_password")
+        remember_me = st.checkbox("记住我 (30天)", key="remember_me_checkbox")
         
         col_a, col_b = st.columns(2)
         with col_a:
@@ -179,6 +223,15 @@ def login_page():
                         st.session_state.logged_in = True
                         st.session_state.current_user = user
                         st.success(f"欢迎回来，{user['name']}！")
+
+                        if remember_me:
+                            # 设置cookie，有效期30天
+                            if st.session_state.cookies.ready():
+                                st.session_state.cookies['remember_me_username'] = user['username']
+                                st.session_state.cookies.save(expires_at=datetime.now() + timedelta(days=30))
+                            else:
+                                # 在极少数情况下，如果此时cookie仍未就绪，可以给一个提示
+                                st.toast("Cookie 功能正在初始化，'记住我' 可能不会立即生效。")
                         time.sleep(0.5)
                         st.rerun()
                     else:
@@ -230,18 +283,38 @@ def main_app():
                 st.markdown('<div style="font-size: 72px; text-align: center;">👤</div>', unsafe_allow_html=True) # 游客图标
                 st.markdown(f"<div class='user-nav-name'>{st.session_state.current_user['name']}</div>", unsafe_allow_html=True)
             
-            if st.button("退出登录", key="logout_top", use_container_width=True):
-                @st.dialog("确认退出")
-                def confirm_logout():
-                    st.write("您确定要退出登录吗？")
-                    if st.button("确认", key="confirm_logout_top"):
-                        st.session_state.logged_in = False
-                        st.session_state.current_user = None
-                        st.rerun()
-                confirm_logout()
+            if st.button("退出登录", key="logout_top_btn", use_container_width=True):
+                st.session_state.show_logout_confirmation = True
+                st.rerun()
             
             st.markdown('</div>', unsafe_allow_html=True)
     
+    # 处理退出登录的确认对话框
+    if st.session_state.get('show_logout_confirmation'):
+        # 使用列布局来模拟居中弹窗
+        _ , center_col, _ = st.columns([1, 1.5, 1])
+        with center_col:
+            # 使用带边框的容器，让它看起来像一个卡片/弹窗
+            with st.container(border=True):
+                st.write("#### **确认退出**")
+                st.write("您确定要退出当前账号吗？")
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    if st.button("确认", key="confirm_logout_dialog", use_container_width=True, type="primary"):
+                        if 'cookies' in st.session_state and st.session_state.cookies.ready() and st.session_state.cookies.get('remember_me_username'):
+                            st.session_state.cookies['remember_me_username'] = ''
+                            st.session_state.cookies.save()
+                        st.session_state.logged_in = False
+                        st.session_state.current_user = None
+                        st.session_state.show_logout_confirmation = False
+                        st.rerun()
+                with btn_col2:
+                    if st.button("取消", key="cancel_logout_dialog", use_container_width=True):
+                        st.session_state.show_logout_confirmation = False
+                        st.rerun()
+        # 显示对话框时，不显示下面的内容
+        return
+
     # 健康打卡栏
     show_health_checkin()
     
@@ -727,34 +800,160 @@ def cook_or_order_page():
         
         if foods:
             food = random.choice(foods)
-            show_food_result(food)
+            show_food_result(food, key_prefix="cook_or_order")
+
+# ============ 基于冰箱食材推荐 ============
+def recommend_from_pantry():
+    """根据冰箱里的食材推荐菜谱 - v2.0 智能匹配版"""
+    # 扩充菜谱库，增加更多可能性
+    # v2.1: 大幅扩充菜谱库
+    recipe_book = {
+        # --- 经典家常 ---
+        "番茄炒蛋": ["番茄", "鸡蛋"],
+        "青椒肉丝": ["青椒", "猪肉"],
+        "鱼香肉丝": ["猪肉", "木耳", "胡萝卜"],
+        "红烧肉": ["五花肉", "姜", "葱"],
+        "糖醋排骨": ["排骨"],
+        "回锅肉": ["五花肉", "青椒"],
+        "麻婆豆腐": ["豆腐", "牛肉"],
+        "宫保鸡丁": ["鸡丁", "花生", "黄瓜"],
+        "可乐鸡翅": ["鸡翅", "可乐"],
+        "大盘鸡": ["鸡肉", "土豆", "青椒"],
+        "水煮牛肉": ["牛肉", "豆芽"],
+        "西红柿牛腩": ["牛腩", "番茄", "洋葱"],
+        "清蒸鱼": ["鱼", "葱", "姜"],
+        "红烧茄子": ["茄子", "猪肉"],
+        "地三鲜": ["土豆", "茄子", "青椒"],
+        "干煸豆角": ["四季豆", "猪肉"],
+        "手撕包菜": ["包菜", "蒜"],
+        "酸辣土豆丝": ["土豆"],
+        # --- 健康&素菜&蛋类 ---
+        "清炒西兰花": ["西兰花"],
+        "蒜蓉西兰花": ["西兰花", "蒜"],
+        "蚝油生菜": ["生菜", "蒜"],
+        "凉拌黄瓜": ["黄瓜", "蒜"],
+        "凉拌木耳": ["木耳", "蒜"],
+        "黄瓜炒鸡蛋": ["黄瓜", "鸡蛋"],
+        "洋葱炒蛋": ["洋葱", "鸡蛋"],
+        "韭菜炒蛋": ["韭菜", "鸡蛋"],
+        "秋葵炒蛋": ["秋葵", "鸡蛋"],
+        "蒸鸡蛋羹": ["鸡蛋"],
+        "皮蛋豆腐": ["皮蛋", "豆腐"],
+        # --- 快手主食 (面食) ---
+        "葱油拌面": ["面条", "葱"],
+        "西红柿鸡蛋面": ["面条", "番茄", "鸡蛋"],
+        "炸酱面": ["面条", "猪肉", "黄瓜"],
+        "阳春面": ["面条", "葱"],
+        "雪菜肉丝面": ["面条", "猪肉", "雪菜"],
+        # --- 汤羹 ---
+        "排骨汤": ["排骨", "玉米", "胡萝卜"],
+        "冬瓜排骨汤": ["冬瓜", "排骨"],
+        "紫菜蛋花汤": ["紫菜", "鸡蛋"],
+        # --- 方便速成 ---
+        "香煎鸡胸肉": ["鸡胸肉"],
+        "白灼虾": ["虾"],
+        "火腿炒蛋": ["火腿", "鸡蛋"],
+        "咖喱鸡肉": ["鸡肉", "土豆", "胡萝卜", "洋葱"],
+    }
+
+    # 从数据库加载用户自定义菜谱
+    user_id = st.session_state.current_user['username']
+    conn_user_recipe = get_connection()
+    cursor_user_recipe = conn_user_recipe.cursor()
+    cursor_user_recipe.execute("SELECT recipe_name, ingredients FROM user_recipes WHERE user_id = ?", (user_id,))
+    user_recipes = cursor_user_recipe.fetchall()
+    conn_user_recipe.close()
+
+    for rec in user_recipes:
+        try:
+            # 将内置菜谱与用户菜谱合并，用户菜谱优先级更高
+            recipe_book[rec['recipe_name']] = json.loads(rec['ingredients'])
+        except json.JSONDecodeError:
+            continue # 如果JSON格式错误则跳过
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT food_name FROM pantry WHERE quantity > 0")
+    # 修复：查询冰箱食材时必须指定当前用户
+    cursor.execute("SELECT food_name FROM pantry WHERE quantity > 0 AND user_id = ?", (user_id,))
+    # 将食材名称转换为集合以便快速查找
+    available_ingredients = {item['food_name'] for item in cursor.fetchall()}
+    conn.close()
+
+    if not available_ingredients:
+        return []
+
+    scored_dishes = []
+    for dish, required in recipe_book.items():
+        required_set = set(required)
+        have_set = available_ingredients.intersection(required_set)
+        missing_set = required_set - have_set
+        
+        # 计算匹配度
+        match_score = len(have_set) / len(required_set)
+        
+        # 只要拥有至少一个核心食材，就加入推荐列表
+        if match_score > 0:
+            scored_dishes.append({
+                'name': dish,
+                'score': match_score,
+                'have': list(have_set),
+                'missing': list(missing_set)
+            })
+    
+    # 按匹配度从高到低排序
+    scored_dishes.sort(key=lambda x: x['score'], reverse=True)
+    
+    return scored_dishes
 
 # ============ 数字冰箱 ============
 def digital_pantry_page():
     st.write("### 🥗 数字冰箱")
     
-    tabs = st.tabs(["库存管理", "待买清单"])
+    pantry_tabs = st.tabs(["库存管理", "智能配餐", "待买清单"])
     
-    with tabs[0]:
+    with pantry_tabs[0]:
         st.write("#### 当前库存")
         
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM pantry ORDER BY updated_at DESC")
+        user_id = st.session_state.current_user['username']
+        cursor.execute("SELECT * FROM pantry WHERE user_id = ? ORDER BY updated_at DESC", (user_id,))
         items = cursor.fetchall()
         
         if items:
+            # 表头
+            col_h1, col_h2, col_h3 = st.columns([4, 3, 1])
+            with col_h1:
+                st.caption("食材")
+            with col_h2:
+                st.caption("数量")
+            with col_h3:
+                st.caption("操作")
+            st.divider()
+
             for item in items:
-                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                col1, col2, col3, col4, col5 = st.columns([4, 1, 1, 1, 1])
                 with col1:
-                    st.write(item['food_name'])
+                    st.markdown(f"<div style='padding-top: 8px;'>{item['food_name']}</div>", unsafe_allow_html=True)
                 with col2:
-                    st.caption(f"数量: {item['quantity']}")
+                    if st.button("➖", key=f"decr_pantry_{item['id']}", use_container_width=True):
+                        new_qty = item['quantity'] - 1
+                        if new_qty > 0:
+                            cursor.execute("UPDATE pantry SET quantity = ? WHERE id = ?", (new_qty, item['id']))
+                        else: # 如果数量为0，则直接删除
+                            cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
+                        conn.commit()
+                        st.rerun()
                 with col3:
-                    status_color = "🟢" if item['status'] == "充足" else "🔴"
-                    st.caption(f"{status_color} {item['status']}")
+                    st.markdown(f"<div style='text-align: center; padding-top: 8px; font-weight: bold;'>{item['quantity']}</div>", unsafe_allow_html=True)
                 with col4:
-                    if st.button("删除", key=f"del_pantry_{item['id']}"):
+                    if st.button("➕", key=f"incr_pantry_{item['id']}", use_container_width=True):
+                        cursor.execute("UPDATE pantry SET quantity = quantity + 1 WHERE id = ?", (item['id'],))
+                        conn.commit()
+                        st.rerun()
+                with col5:
+                    if st.button("🗑️", key=f"del_pantry_{item['id']}", use_container_width=True):
                         cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
                         conn.commit()
                         st.rerun()
@@ -772,22 +971,82 @@ def digital_pantry_page():
             if st.button("➕ 添加", key="add_pantry_item"):
                 if new_food:
                     cursor.execute("""
-                        INSERT INTO pantry (food_name, quantity, status)
-                        VALUES (?, ?, '充足')
-                    """, (new_food, new_qty))
+                        INSERT INTO pantry (food_name, quantity, status, user_id)
+                        VALUES (?, ?, '充足', ?)
+                    """, (new_food, new_qty, user_id))
                     conn.commit()
                     st.success(f"已添加 {new_food}")
                     st.rerun()
+            
         
         conn.close()
     
-    with tabs[1]:
+    with pantry_tabs[1]:
+        st.write("#### 智能配餐")
+        st.caption("根据你冰箱里的食材，看看今天能做什么好吃的！")
+
+        if st.button("🍳 帮我看看能做什么", use_container_width=True):
+            with st.spinner("正在翻看冰箱和菜谱..."):
+                recommendations = recommend_from_pantry()
+                if recommendations:
+                    st.session_state.pantry_recommendations = recommendations
+                else:
+                    st.session_state.pantry_recommendations = []
+                    st.warning("冰箱里的食材好像还不够做一道完整的菜哦，去“库存管理”看看吧！")
+        
+        if 'pantry_recommendations' in st.session_state and st.session_state.pantry_recommendations:
+            st.write("---")
+            
+            # 安全检查：确保 session 中的数据结构是新的（包含 'score' 键）
+            if 'score' not in st.session_state.pantry_recommendations[0]:
+                st.session_state.pantry_recommendations = [] # 如果是旧数据，则清空
+                st.rerun()
+
+            # 分为“万事俱备”和“就差一点”
+            ready_to_cook = [r for r in st.session_state.pantry_recommendations if r['score'] == 1.0]
+            almost_ready = [r for r in st.session_state.pantry_recommendations if 0 < r['score'] < 1.0]
+
+            if ready_to_cook:
+                st.success("🎉 万事俱备！这些菜可以直接做：")
+                for rec in ready_to_cook:
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.markdown(f"#### {rec['name']}")
+                    with col2:
+                        st.link_button("📕 小红书教程", f"https://www.xiaohongshu.com/search_result/?keyword={rec['name']} 做法", use_container_width=True)
+            
+            if almost_ready:
+                st.info("💡 就差一点！补齐这些食材就能做：")
+                for rec in almost_ready:
+                    st.markdown(f"#### {rec['name']}")
+                    
+                    col1, col2 = st.columns([2,1])
+                    with col1:
+                        missing_str = ", ".join(rec['missing'])
+                        st.caption(f"还差：<span style='color: red;'>**{missing_str}**</span>", unsafe_allow_html=True)
+                    with col2:
+                        if st.button("🛒 加入待买", key=f"add_missing_{rec['name']}", use_container_width=True):
+                            conn = get_connection()
+                            cursor = conn.cursor()
+                            user_id = st.session_state.current_user['username']
+                            for item in rec['missing']:
+                                # 简单处理：如果不存在则添加
+                                cursor.execute("INSERT OR IGNORE INTO shopping_list (item_name, user_id) VALUES (?, ?)", (item, user_id))
+                            conn.commit()
+                            conn.close()
+                            st.toast(f"“{missing_str}” 已加入待买清单！")
+                            time.sleep(0.5)
+
+                    st.link_button("📕 去小红书找灵感", f"https://www.xiaohongshu.com/search_result/?keyword={rec['name']} 做法", use_container_width=True)
+    
+    with pantry_tabs[2]:
         st.write("#### 待买清单")
         
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM shopping_list WHERE is_bought = 0")
-        items = cursor.fetchall()
+        user_id = st.session_state.current_user['username']
+        items = cursor.execute("SELECT * FROM shopping_list WHERE is_bought = 0 AND user_id = ?", (user_id,)).fetchall()
         
         if items:
             for item in items:
@@ -812,7 +1071,7 @@ def digital_pantry_page():
             if st.button("➕ 添加", key="add_shopping_item"):
                 if new_item:
                     cursor.execute("""
-                        INSERT INTO shopping_list (item_name, added_by)
+                        INSERT INTO shopping_list (item_name, user_id)
                         VALUES (?, ?)
                     """, (new_item, st.session_state.current_user['username']))
                     conn.commit()
@@ -823,40 +1082,96 @@ def digital_pantry_page():
 
 # ============ 饮食日历 ============
 def calendar_page():
-    st.write("### 📅 饮食日历")
-    st.caption("查看过去30天的饮食记录")
+    st.write("### 📅 饮食日历与统计")
     
-    conn = get_connection()
-    cursor = conn.cursor()
+    cal_tabs = st.tabs(["🗓️ 日历视图", "📊 统计图表"])
     user_id = st.session_state.current_user['username']
-    
-    # 获取最近30天的记录
-    thirty_days_ago = (datetime.now() - timedelta(days=30)).date()
-    cursor.execute("""
-        SELECT date, food_name, meal_time, rating
-        FROM eat_history
-        WHERE user_id = ? AND date >= ?
-        ORDER BY date DESC, created_at DESC
-    """, (user_id, thirty_days_ago.isoformat()))
-    
-    records = cursor.fetchall()
-    conn.close()
-    
-    if records:
-        # 按日期分组显示
-        by_date = defaultdict(list)
-        for rec in records:
-            by_date[rec['date']].append(rec)
+
+    with cal_tabs[0]:
+        st.caption("查看过去30天的饮食记录")
         
-        for date in sorted(by_date.keys(), reverse=True):
-            st.write(f"#### {date}")
-            for rec in by_date[date]:
-                meal_emoji = {"早餐": "🌅", "午餐": "☀️", "晚餐": "🌙"}.get(rec['meal_time'], "🍽️")
-                rating_stars = "⭐" * (rec['rating'] or 0)
-                st.write(f"{meal_emoji} {rec['food_name']} {rating_stars}")
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # 获取最近30天的记录
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).date()
+        cursor.execute("""
+            SELECT date, food_name, meal_time, rating
+            FROM eat_history
+            WHERE user_id = ? AND date >= ?
+            ORDER BY date DESC, created_at DESC
+        """, (user_id, thirty_days_ago.isoformat()))
+        
+        records = cursor.fetchall()
+        conn.close()
+        
+        if records:
+            # 按日期分组显示
+            by_date = defaultdict(list)
+            for rec in records:
+                by_date[rec['date']].append(rec)
+            
+            for date in sorted(by_date.keys(), reverse=True):
+                st.write(f"#### {date}")
+                for rec in by_date[date]:
+                    meal_emoji = {"早餐": "🌅", "午餐": "☀️", "晚餐": "🌙", "夜宵": "🌃"}.get(rec['meal_time'], "🍽️")
+                    rating_stars = "⭐" * (rec['rating'] or 0)
+                    st.write(f"{meal_emoji} {rec['meal_time']}: {rec['food_name']} {rating_stars}")
+                st.divider()
+        else:
+            st.info("还没有饮食记录哦")
+
+    with cal_tabs[1]:
+        st.caption("通过图表回顾你的饮食习惯")
+        
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT e.date, e.meal_time, e.food_name, e.rating, f.health_tag
+            FROM eat_history e
+            LEFT JOIN foods f ON e.food_name = f.name
+            WHERE e.user_id = ?
+        """, (user_id,))
+        history_data = cursor.fetchall()
+        column_names = [description[0] for description in cursor.description]
+        conn.close()
+
+        if not history_data:
+            st.info("还没有足够的饮食记录来生成统计图表哦。")
+        else:
+            df = pd.DataFrame(history_data, columns=column_names)
+            df['date'] = pd.to_datetime(df['date'])
+
+            st.write("#### 📅 最近30天饮食热力图")
+            thirty_days_ago = pd.to_datetime(datetime.now() - timedelta(days=30))
+            recent_df = df[df['date'] >= thirty_days_ago]
+            
+            if not recent_df.empty:
+                daily_counts = recent_df.groupby(df['date'].dt.date).size().reset_index(name='counts')
+                daily_counts['date'] = pd.to_datetime(daily_counts['date'])
+                date_range = pd.date_range(start=daily_counts['date'].min(), end=daily_counts['date'].max())
+                full_range_df = pd.DataFrame(date_range, columns=['date'])
+                daily_counts = pd.merge(full_range_df, daily_counts, on='date', how='left').fillna(0)
+
+                fig_heatmap = px.density_heatmap(daily_counts, x=daily_counts['date'].dt.dayofweek, y=daily_counts['date'].dt.isocalendar().week, z='counts', labels={'x': '星期', 'y': '周数', 'z': '记录数'}, title="每日记录数 (颜色越深记录越多)", text_auto=True, color_continuous_scale="Greens")
+                fig_heatmap.update_layout(yaxis_title="周数", xaxis_title="星期", xaxis={'ticktext': ['一', '二', '三', '四', '五', '六', '日'], 'tickvals': list(range(7))})
+                st.plotly_chart(fig_heatmap, use_container_width=True)
+            else:
+                st.info("最近30天没有饮食记录。")
+
             st.divider()
-    else:
-        st.info("还没有饮食记录哦")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("#### 🍽️ 餐次分布")
+                meal_counts = df['meal_time'].value_counts().reset_index()
+                fig_pie = px.pie(meal_counts, values='count', names='meal_time', title="各项餐次占比")
+                st.plotly_chart(fig_pie, use_container_width=True)
+            with col2:
+                st.write("#### 🍔 健康标签分布")
+                health_tag_counts = df['health_tag'].value_counts().reset_index()
+                fig_bar = px.bar(health_tag_counts, x='health_tag', y='count', title="各类饮食标签占比", labels={'health_tag': '健康标签', 'count': '次数'})
+                st.plotly_chart(fig_bar, use_container_width=True)
 
 # ============ 设置页面 ============
 def settings_page():
@@ -866,7 +1181,7 @@ def settings_page():
     prefs = get_user_preferences(user_id)
     
     # 创建标签页
-    tabs = st.tabs(["🌶️ 口味偏好", "🍽️ 食物管理", "🚫 黑名单", "📊 数据统计", "👤 账户信息"])
+    tabs = st.tabs(["🌶️ 口味偏好", "📖 我的菜谱", "🍽️ 食物管理", "🚫 黑名单", "👤 账户信息"])
     
     # ==== 口味偏好 ====
     with tabs[0]:
@@ -926,7 +1241,54 @@ def settings_page():
             st.success("✅ 已保存，下次推荐时生效！")
     
     # ==== 食物管理 ====
-    with tabs[1]:
+    with tabs[1]: # 我的菜谱
+        st.write("#### 📖 我的菜谱")
+        st.caption("在这里添加你的私房菜谱，让“智能配餐”更懂你！")
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # 显示已有菜谱
+        cursor.execute("SELECT id, recipe_name, ingredients FROM user_recipes WHERE user_id = ?", (user_id,))
+        my_recipes = cursor.fetchall()
+
+        if my_recipes:
+            for recipe in my_recipes:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.markdown(f"**{recipe['recipe_name']}**")
+                    ingredients_list = json.loads(recipe['ingredients'])
+                    st.caption(f"需要: {', '.join(ingredients_list)}")
+                with col2:
+                    if st.button("🗑️ 删除", key=f"del_recipe_{recipe['id']}", use_container_width=True):
+                        cursor.execute("DELETE FROM user_recipes WHERE id = ?", (recipe['id'],))
+                        conn.commit()
+                        st.rerun()
+                st.divider()
+        else:
+            st.info("你还没有添加任何私房菜谱。")
+
+        # 添加新菜谱
+        st.write("##### 添加新菜谱")
+        new_recipe_name = st.text_input("菜谱名称", key="new_recipe_name")
+        new_recipe_ingredients = st.text_input("所需食材（用逗号隔开）", key="new_recipe_ingredients", placeholder="例如: 猪肉, 青椒, 蒜")
+
+        if st.button("💾 保存菜谱", key="add_my_recipe", use_container_width=True):
+            if new_recipe_name and new_recipe_ingredients:
+                ingredients_list = [item.strip() for item in new_recipe_ingredients.split(',')]
+                ingredients_json = json.dumps(ingredients_list)
+                try:
+                    cursor.execute(
+                        "INSERT INTO user_recipes (user_id, recipe_name, ingredients) VALUES (?, ?, ?)",
+                        (user_id, new_recipe_name, ingredients_json)
+                    )
+                    conn.commit()
+                    st.success(f"菜谱 “{new_recipe_name}” 已保存！")
+                    st.rerun()
+                except Exception as e:
+                    st.error("保存失败，菜谱名称可能已存在。")
+
+    with tabs[2]:
         st.write("#### 🍽️ 食物管理")
         
         conn = get_connection()
@@ -1167,7 +1529,7 @@ def settings_page():
         conn.close()
     
     # ==== 黑名单 ====
-    with tabs[2]:
+    with tabs[3]:
         st.write("#### 我的黑名单")
         st.caption("添加到黑名单的食物将不会出现在推荐中")
         
@@ -1201,69 +1563,6 @@ def settings_page():
                     update_user_preferences(user_id, {'blacklist': blacklist})
                     st.success("✅ 已添加")
                     st.rerun()
-        
-        conn.close()
-    
-    # ==== 数据统计 ====
-    with tabs[3]:
-        st.write("#### 📊 我的饮食数据")
-        
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        # 统计总记录数
-        cursor.execute("""
-            SELECT COUNT(*) as cnt FROM eat_history WHERE user_id = ?
-        """, (user_id,))
-        total_records = cursor.fetchone()['cnt']
-        
-        # 最近7天记录
-        seven_days_ago = (datetime.now() - timedelta(days=7)).date()
-        cursor.execute("""
-            SELECT COUNT(*) as cnt FROM eat_history 
-            WHERE user_id = ? AND date >= ?
-        """, (user_id, seven_days_ago))
-        recent_records = cursor.fetchone()['cnt']
-        
-        # 最喜欢的食片3（最近30天）
-        thirty_days_ago = (datetime.now() - timedelta(days=30)).date()
-        cursor.execute("""
-            SELECT food_name, COUNT(*) as cnt
-            FROM eat_history
-            WHERE user_id = ? AND date >= ?
-            GROUP BY food_name
-            ORDER BY cnt DESC
-            LIMIT 3
-        """, (user_id, thirty_days_ago))
-        top_foods = cursor.fetchall()
-        
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            st.metric("📝 累计记录", f"{total_records} 次")
-            st.metric("📅 最近7天", f"{recent_records} 次")
-        with col_m2:
-            st.write("**🏆 最爱吃的（近30天）**")
-            if top_foods:
-                for i, food in enumerate(top_foods, 1):
-                    st.write(f"{i}. {food['food_name']} ({food['cnt']}次)")
-            else:
-                st.caption("暂无数据")
-        
-        st.divider()
-        
-        # 满意度分布
-        cursor.execute("""
-            SELECT rating, COUNT(*) as cnt
-            FROM eat_history
-            WHERE user_id = ? AND rating IS NOT NULL
-            GROUP BY rating
-        """, (user_id,))
-        rating_data = cursor.fetchall()
-        
-        if rating_data:
-            st.write("**⭐ 满意度分布**")
-            for r in rating_data:
-                st.write(f"{r['rating']}星: {r['cnt']}次")
         
         conn.close()
     
@@ -1328,15 +1627,9 @@ def settings_page():
         
         st.divider()
         
-        if st.button("🚪 退出登录", key="logout_settings", use_container_width=True):
-            @st.dialog("确认退出")
-            def confirm_logout_settings():
-                st.write("您确定要退出登录吗？")
-                if st.button("确认", key="confirm_logout_settings_btn"):
-                    st.session_state.logged_in = False
-                    st.session_state.current_user = None
-                    st.rerun()
-            confirm_logout_settings()
+        if st.button("🚪 退出登录", key="logout_settings_btn", use_container_width=True):
+            st.session_state.show_logout_confirmation = True
+            st.rerun()
 
 # ============ 结果展示 ============
 def show_food_result_v2(food, time_of_day):
@@ -1413,7 +1706,7 @@ def show_food_result_v2(food, time_of_day):
     if food_dict.get('recipe_link'):
         st.write(f"📖 [查看菜谱]({food['recipe_link']})")
 
-def show_food_result(food):
+def show_food_result(food, key_prefix="general"):
     """展示选中的食物结果 - 通用版本"""
     st.markdown(f"""
     <div class="result-box">
@@ -1433,10 +1726,10 @@ def show_food_result(food):
         st.metric("标签", food_dict.get('health_tag') or "无")
     
     # 记录到历史
-    meal_time = st.selectbox("🍴 哪一餐？", ["早餐", "午餐", "晚餐", "夜宵"], key="meal_time_select")
-    rating = st.slider("🌟 满意度", 1, 5, 5, key="rating_general")
+    meal_time = st.selectbox("🍴 哪一餐？", ["早餐", "午餐", "晚餐", "夜宵"], key=f"{key_prefix}_meal_time_select")
+    rating = st.slider("🌟 满意度", 1, 5, 5, key=f"{key_prefix}_rating")
     
-    if st.button("✅ 确认吃这个", key="confirm_general", use_container_width=True):
+    if st.button("✅ 确认吃这个", key=f"{key_prefix}_confirm", use_container_width=True):
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("""

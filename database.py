@@ -3,6 +3,7 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
+from contextlib import contextmanager
 
 DB_PATH = Path("honeyeat.db")
 
@@ -11,6 +12,14 @@ def get_connection():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
+
+@contextmanager
+def db_cursor():
+    """一个用于数据库操作的上下文管理器，自动处理连接和游标。"""
+    conn = get_connection()
+    yield conn.cursor()
+    conn.commit()
+    conn.close()
 
 def init_database():
     """初始化数据库表结构"""
@@ -53,10 +62,12 @@ def init_database():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pantry (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
             food_name TEXT NOT NULL,
             quantity INTEGER DEFAULT 0,
             status TEXT DEFAULT '充足',
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(username)
         )
     """)
     
@@ -95,14 +106,44 @@ def init_database():
         CREATE TABLE IF NOT EXISTS shopping_list (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             item_name TEXT NOT NULL,
+            user_id TEXT NOT NULL,
             quantity INTEGER DEFAULT 1,
             category TEXT,
-            added_by TEXT,
             is_bought INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(username)
         )
     """)
     
+    # 用户自定义菜谱表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_recipes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            recipe_name TEXT NOT NULL,
+            ingredients TEXT NOT NULL, -- JSON array of strings
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(username),
+            UNIQUE(user_id, recipe_name)
+        )
+    """)
+
+    # --- 数据库迁移脚本 (用于兼容旧数据库) ---
+    # 检查并为 shopping_list 表添加 user_id 列
+    cursor.execute("PRAGMA table_info(shopping_list)")
+    shopping_list_columns = [info[1] for info in cursor.fetchall()]
+    if 'user_id' not in shopping_list_columns:
+        # 添加列，并为现有数据设置一个默认值（例如 'admin'），避免 NOT NULL 约束失败
+        cursor.execute("ALTER TABLE shopping_list ADD COLUMN user_id TEXT NOT NULL DEFAULT 'admin'")
+
+    # 检查并为 pantry 表添加 user_id 列
+    cursor.execute("PRAGMA table_info(pantry)")
+    pantry_columns = [info[1] for info in cursor.fetchall()]
+    if 'user_id' not in pantry_columns and pantry_columns: # 增加 pantry_columns 是否为空的判断
+        # 添加列，并为现有数据设置一个默认值
+        cursor.execute("ALTER TABLE pantry ADD COLUMN user_id TEXT NOT NULL DEFAULT 'admin'")
+
+
     conn.commit()
     conn.close()
 
@@ -120,18 +161,21 @@ def create_user(username, name, password, preferences=None):
     
     try:
         cursor.execute("""
-            INSERT INTO users (username, name, password_hash, preferences)
+            INSERT OR IGNORE INTO users (username, name, password_hash, preferences)
             VALUES (?, ?, ?, ?)
         """, (username, name, pwd_hash, prefs))
         conn.commit()
         return True
     except sqlite3.IntegrityError:
+        # INSERT OR IGNORE 应该可以避免这个，但作为备用
         return False
     finally:
         conn.close()
 
 def verify_user(username, password):
     """验证用户登录"""
+    # 注意：此版本将明文密码与哈希后的密码进行比较
+    # 如果数据库中存的是明文，此方法会失败
     conn = get_connection()
     cursor = conn.cursor()
     
