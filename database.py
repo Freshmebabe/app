@@ -241,19 +241,12 @@ def get_user_avatar(username):
         conn.close()
     return None
 
-# 初始化数据库和默认用户
-def init_default_data():
-    """初始化默认数据"""
-    init_database()
-    
+def seed_default_data():
+    """填充默认的用户和食物数据（不创建表）"""
     # 创建默认用户（如果不存在）
     create_user("admin", "管理员", "admin123", {"role": "admin"})
     create_user("bf", "男朋友", "bf123", {"spicy": True, "sweet": False})
     create_user("gf", "女朋友", "gf123", {"spicy": False, "sweet": True})
-    
-    # 插入默认食物数据
-    conn = get_connection()
-    cursor = conn.cursor()
     
     default_foods = [
         # 原有数据
@@ -387,6 +380,9 @@ def init_default_data():
         ("波士顿龙虾", "大餐", "$$$", "CheatMeal", None),
         ("自助餐", "大餐", "$$$", "CheatMeal", None),
     ]
+    
+    conn = get_connection()
+    cursor = conn.cursor()
     
     try:
         cursor.executemany("""
