@@ -169,17 +169,11 @@ def get_db_connection():
     在首次调用时，会检查数据库是否存在，如果不存在，则执行完整的初始化。
     这个过程是阻塞的，确保在返回连接之前，数据库已准备就绪。
     """
-    db_path = "honeyeat.db"
-    db_exists = os.path.exists(db_path)
-    
-    # 无论是否存在，都先获取连接。如果文件不存在，sqlite3会自动创建。
     conn = get_connection()
     
-    # 仅在数据库文件首次创建时，才执行建表和数据填充操作。
-    if not db_exists:
-        print("数据库文件不存在，正在进行首次初始化...")
-        initialize_and_seed_database(conn)
-        print("✅ 数据库初始化完成！")
+    # 始终运行初始化和迁移脚本，以确保数据库结构是最新的。
+    # 此函数是幂等的，可以安全地重复运行。
+    initialize_and_seed_database(conn)
         
     return conn
 
