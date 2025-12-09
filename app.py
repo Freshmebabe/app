@@ -7,8 +7,8 @@ from collections import defaultdict
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
-from database import (
-    init_default_data, verify_user, get_connection,
+from database import ( # 移除了 init_default_data
+    verify_user, get_connection,
     get_user_preferences, update_user_preferences,
     get_user_avatar, update_user_avatar
 )
