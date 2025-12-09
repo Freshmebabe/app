@@ -875,6 +875,7 @@ def digital_pantry_page():
         if items:
             # 表头
             col_h1, col_h2, col_h3 = st.columns([10, 4, 3])
+            col_h1, col_h2, col_h3 = st.columns([5, 2, 3])
             with col_h1:
                 st.caption("食材")
             with col_h2:
@@ -885,6 +886,7 @@ def digital_pantry_page():
 
             for item in items:
                 col1, col2, col3, col4, col5 = st.columns([10, 4, 1, 1, 1])
+                col1, col2, col3 = st.columns([5, 2, 3])
                 with col1:
                     st.markdown(f"<div style='padding-top: 8px;'>{item['food_name']}</div>", unsafe_allow_html=True)
                 with col2:
@@ -895,6 +897,24 @@ def digital_pantry_page():
                         if new_qty > 0:
                             cursor.execute("UPDATE pantry SET quantity = ? WHERE id = ?", (new_qty, item['id']))
                         else:
+                    # 在操作列内部再创建列来放置按钮，使其更紧凑
+                    btn_col1, btn_col2, btn_col3 = st.columns(3)
+                    with btn_col1:
+                        if st.button("➖", key=f"decr_pantry_{item['id']}", use_container_width=True):
+                            new_qty = item['quantity'] - 1
+                            if new_qty > 0:
+                                cursor.execute("UPDATE pantry SET quantity = ? WHERE id = ?", (new_qty, item['id']))
+                            else:
+                                cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
+                            conn.commit()
+                            st.rerun()
+                    with btn_col2:
+                        if st.button("➕", key=f"incr_pantry_{item['id']}", use_container_width=True):
+                            cursor.execute("UPDATE pantry SET quantity = quantity + 1 WHERE id = ?", (item['id'],))
+                            conn.commit()
+                            st.rerun()
+                    with btn_col3:
+                        if st.button("🗑️", key=f"del_pantry_{item['id']}", use_container_width=True):
                             cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
                         conn.commit()
                         st.rerun()
@@ -908,6 +928,8 @@ def digital_pantry_page():
                         cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
                         conn.commit()
                         st.rerun()
+                            conn.commit()
+                            st.rerun()
         else:
             st.info("冰箱空空如也")
         
