@@ -27,14 +27,12 @@ def get_db():
         print("✅ 数据库初始化完成！")
     return conn
 
-def initialize_and_seed_database():
+def initialize_and_seed_database(conn):
     """
     统一的数据库初始化函数。
     如果数据库文件不存在，则创建所有表并填充所有默认数据。
     这个函数会处理所有初始化逻辑，确保操作的原子性。
     """
-    # 接受一个 conn 参数，以便在现有连接上操作
-    conn = get_connection() # 保留这一行以支持旧的调用方式
     cursor = conn.cursor()
     
     # 用户表
