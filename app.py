@@ -9,7 +9,7 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import os
 from database import (
-    get_connection, initialize_and_seed_database, verify_user, 
+    get_connection, initialize_and_seed_database, verify_user, create_user,
     get_user_preferences, update_user_preferences, get_user_avatar, update_user_avatar, update_password
 ) 
 
@@ -219,6 +219,26 @@ def login_page():
                 st.session_state.logged_in = True
                 st.session_state.current_user = {'username': 'guest', 'name': '游客'}
                 st.rerun()
+
+        st.write("") # 增加一些间距
+        with st.expander("没有账号？点此注册"):
+            with st.form("register_form"):
+                reg_username = st.text_input("注册用户名", key="reg_username")
+                reg_name = st.text_input("你的昵称", key="reg_name")
+                reg_password = st.text_input("设置密码", type="password", key="reg_password")
+                reg_confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password")
+
+                if st.form_submit_button("注册"):
+                    if not all([reg_username, reg_name, reg_password, reg_confirm_password]):
+                        st.error("所有字段都不能为空！")
+                    elif reg_password != reg_confirm_password:
+                        st.error("两次输入的密码不一致！")
+                    else:
+                        conn = get_db_connection()
+                        if create_user(conn, reg_username, reg_name, reg_password):
+                            st.success(f"用户 “{reg_name}” 注册成功！现在你可以用新账号登录了。")
+                        else:
+                            st.error("注册失败，用户名可能已被占用。")
         
         st.divider()
         #st.caption("💡 默认账号: admin/admin123, bf/bf123, gf/gf123")

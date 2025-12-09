@@ -299,8 +299,17 @@ def initialize_and_seed_database(conn):
     conn.commit()
 
 def hash_password(password):
-    """密码哈希"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    pwd_hash = hash_password(password)
+    
+    try:
+        cursor.execute(
+            "INSERT INTO users (username, name, password_hash, preferences) VALUES (?, ?, ?, ?)",
+            (username, name, pwd_hash, prefs)
+        )
+        return True
+    except sqlite3.IntegrityError:
+        # INSERT OR IGNORE 应该可以避免这个，但作为备用
+        return False
 
 def create_user(conn, username, name, password, preferences=None):
     """创建用户"""
@@ -316,7 +325,6 @@ def create_user(conn, username, name, password, preferences=None):
         )
         return True
     except sqlite3.IntegrityError:
-        # INSERT OR IGNORE 应该可以避免这个，但作为备用
         return False
 
 def verify_user(conn, username, password):
