@@ -893,13 +893,13 @@ def digital_pantry_page():
                     # 在操作列内部再创建列来放置按钮，使其更紧凑
                     btn_col1, btn_col2, btn_col3 = st.columns(3)
                     with btn_col1:
-                        if st.button("➖", key=f"decr_pantry_{item['id']}", use_container_width=True):
+                        if st.button("➖", key=f"decr_pantry_{item['id']}", use_container_width=True): # type: ignore
                             new_qty = item['quantity'] - 1
                             if new_qty > 0:
                                 cursor.execute("UPDATE pantry SET quantity = ? WHERE id = ?", (new_qty, item['id']))
                             else:
                                 cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
-                            conn.commit()
+                            conn.commit() # type: ignore
                             st.rerun()
                     with btn_col2:
                         if st.button("➕", key=f"incr_pantry_{item['id']}", use_container_width=True):
