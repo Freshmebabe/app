@@ -128,7 +128,7 @@ st.markdown("""
     }
     .user-nav-name {
         font-weight: bold;
-        text-align: center; 
+        text-align: center;
     }
     
     /* 隐藏streamlit默认元素 */
@@ -864,7 +864,7 @@ def digital_pantry_page():
         st.write("#### 当前库存")
         
         conn = get_connection()
-        cursor = conn.cursor() 
+        cursor = conn.cursor()
         user_id = st.session_state.current_user['username']
         cursor.execute("SELECT * FROM pantry WHERE user_id = ? ORDER BY updated_at DESC", (user_id,))
         items = cursor.fetchall()
