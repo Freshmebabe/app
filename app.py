@@ -8,9 +8,8 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
 from database import (
-    verify_user, get_connection, initialize_and_seed_database,
-    get_user_preferences, update_user_preferences,
-    get_user_avatar, update_user_avatar
+    get_connection, initialize_and_seed_database, verify_user, 
+    get_user_preferences, update_user_preferences, get_user_avatar, update_user_avatar, update_password
 ) 
 
 # 页面配置
@@ -174,6 +173,13 @@ def ensure_db_initialized():
 
 ensure_db_initialized()
 
+# ============ 数据库连接管理 (建议的优化) ============
+@st.cache_resource
+def get_db_connection():
+    """使用 Streamlit 缓存来管理数据库连接"""
+    conn = get_connection()
+    return conn
+
 # ============ 登录界面 ============
 def login_page():
     st.markdown('<h1 class="main-title">🍽️ HoneyEat</h1>', unsafe_allow_html=True)
@@ -190,16 +196,18 @@ def login_page():
         with col_a:
             if st.button("登录", use_container_width=True, key="login_btn"):
                 if username and password:
-                    user = verify_user(username, password)
-                    if user:
+                    # 直接使用缓存连接进行验证
+                    conn = get_db_connection()
+                    result = verify_user(conn, username, password)
+                    if result["success"]:
+                        user = result["user"]
                         st.session_state.logged_in = True
                         st.session_state.current_user = user
                         st.success(f"欢迎回来，{user['name']}！")
-
                         time.sleep(0.5)
                         st.rerun()
                     else:
-                        st.error("用户名或密码错误")
+                        st.error(result["message"]) # 显示更详细的错误信息
                 else:
                     st.warning("请输入用户名和密码")
         
@@ -233,7 +241,8 @@ def main_app():
             
             user_id = st.session_state.current_user['username']
             if user_id != 'guest':
-                avatar = get_user_avatar(user_id)
+                conn = get_db_connection()
+                avatar = get_user_avatar(conn, user_id)
                 if avatar:
                     img_str = base64.b64encode(avatar).decode()
                     st.markdown(
@@ -315,7 +324,7 @@ def show_health_checkin():
     with col1:
         st.write("### 今日健康打卡")
     
-    conn = get_connection()
+    conn = get_db_connection()
     cursor = conn.cursor()
     today = datetime.now().date()
     user_id = st.session_state.current_user['username']
@@ -348,16 +357,14 @@ def show_health_checkin():
                 INSERT INTO health_checkin (date, user_id, water_checked, fruit_checked)
                 VALUES (?, ?, ?, ?)
             """, (today.isoformat(), user_id, int(water), int(fruit)))
-        conn.commit()
-    
-    conn.close()
+        conn.commit() # 仅在数据变化时提交
     
     # 健康提醒
     show_health_reminder()
 
 def show_health_reminder():
     """显示健康提醒"""
-    conn = get_connection()
+    conn = get_db_connection()
     cursor = conn.cursor()
     user_id = st.session_state.current_user['username']
     
@@ -372,7 +379,6 @@ def show_health_reminder():
     """, (user_id, three_days_ago.isoformat()))
     
     tags = dict(cursor.fetchall())
-    conn.close()
     
     if tags.get('Spicy', 0) >= 3 or tags.get('CheatMeal', 0) >= 3:
         st.markdown("""
@@ -464,10 +470,10 @@ def smart_recommendation_page():
 
 def get_smart_recommendation_v2(time_of_day, mood, appetite, flavor_prefer, time_constraint, exclude_recent=False):
     """基于多维度问答的智能推荐算法 v3 (逻辑增强版)"""
-    conn = get_connection()
+    conn = get_db_connection()
     cursor = conn.cursor()
     user_id = st.session_state.current_user['username']
-    user_prefs = get_user_preferences(user_id)
+    user_prefs = get_user_preferences(conn, user_id)
     
     # 1. 构建基础查询，排除最近吃过的
     query = "SELECT * FROM foods WHERE active = 1"
@@ -479,7 +485,6 @@ def get_smart_recommendation_v2(time_of_day, mood, appetite, flavor_prefer, time
     
     cursor.execute(query, params)
     foods = [dict(row) for row in cursor.fetchall()]
-    conn.close()
     
     if not foods:
         return None
@@ -657,11 +662,10 @@ def food_pk_page():
     if not st.session_state.pk_round:
         if st.button("🎮 开始PK", use_container_width=True):
             # 随机选8个食物进行PK
-            conn = get_connection()
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM foods WHERE active = 1 ORDER BY RANDOM() LIMIT 8")
             foods = [dict(row) for row in cursor.fetchall()]
-            conn.close()
             
             st.session_state.pk_round = foods
             st.rerun()
@@ -725,11 +729,10 @@ def cook_or_order_page():
         st.info("冰箱里有这些食材可以做：")
         user_id = st.session_state.current_user['username']
         
-        conn = get_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM pantry WHERE user_id = ? AND quantity > 0 LIMIT 5", (user_id,))
         items = cursor.fetchall()
-        conn.close()
         
         if items:
             for item in items:
@@ -740,11 +743,10 @@ def cook_or_order_page():
     elif lazy_level <= 6:
         st.write("#### 🚶 推荐：简单速食")
         
-        conn = get_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM foods WHERE category = '速食' AND active = 1")
         foods = [dict(row) for row in cursor.fetchall()]
-        conn.close()
         
         if foods:
             food = random.choice(foods)
@@ -754,11 +756,10 @@ def cook_or_order_page():
     else:
         st.write("#### 🛋️ 推荐：直接外卖")
         
-        conn = get_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM foods WHERE category IN ('快餐', '大餐') AND active = 1")
         foods = [dict(row) for row in cursor.fetchall()]
-        conn.close()
         
         if foods:
             food = random.choice(foods)
@@ -820,11 +821,10 @@ def recommend_from_pantry():
 
     # 从数据库加载用户自定义菜谱
     user_id = st.session_state.current_user['username']
-    conn_user_recipe = get_connection()
+    conn_user_recipe = get_db_connection() # This is already cached, no need for a separate variable
     cursor_user_recipe = conn_user_recipe.cursor()
     cursor_user_recipe.execute("SELECT recipe_name, ingredients FROM user_recipes WHERE user_id = ?", (user_id,))
     user_recipes = cursor_user_recipe.fetchall()
-    conn_user_recipe.close()
 
     for rec in user_recipes:
         try:
@@ -833,13 +833,12 @@ def recommend_from_pantry():
         except json.JSONDecodeError:
             continue # 如果JSON格式错误则跳过
 
-    conn = get_connection()
+    conn = get_db_connection()
     cursor = conn.cursor()
     # 修复：查询冰箱食材时必须指定当前用户
     cursor.execute("SELECT food_name FROM pantry WHERE quantity > 0 AND user_id = ?", (user_id,))
     # 将食材名称转换为集合以便快速查找
     available_ingredients = {item['food_name'] for item in cursor.fetchall()}
-    conn.close()
 
     if not available_ingredients:
         return []
@@ -876,7 +875,7 @@ def digital_pantry_page():
     with pantry_tabs[0]:
         st.write("#### 当前库存")
         
-        conn = get_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
         user_id = st.session_state.current_user['username']
         cursor.execute("SELECT * FROM pantry WHERE user_id = ? ORDER BY updated_at DESC", (user_id,))
@@ -948,9 +947,6 @@ def digital_pantry_page():
                     conn.commit()
                     st.success(f"已添加 {new_food}")
                     st.rerun()
-            
-        
-        conn.close()
     
     with pantry_tabs[1]:
         st.write("#### 智能配餐")
@@ -997,14 +993,13 @@ def digital_pantry_page():
                         st.caption(f"还差：<span style='color: red;'>**{missing_str}**</span>", unsafe_allow_html=True)
                     with col2:
                         if st.button("🛒 加入待买", key=f"add_missing_{rec['name']}", use_container_width=True):
-                            conn = get_connection()
+                            conn = get_db_connection()
                             cursor = conn.cursor()
                             user_id = st.session_state.current_user['username']
                             for item in rec['missing']:
                                 # 简单处理：如果不存在则添加
                                 cursor.execute("INSERT OR IGNORE INTO shopping_list (item_name, user_id) VALUES (?, ?)", (item, user_id))
                             conn.commit()
-                            conn.close()
                             st.toast(f"“{missing_str}” 已加入待买清单！")
                             time.sleep(0.5)
 
@@ -1013,7 +1008,7 @@ def digital_pantry_page():
     with pantry_tabs[2]:
         st.write("#### 待买清单")
         
-        conn = get_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM shopping_list WHERE is_bought = 0")
         user_id = st.session_state.current_user['username']
@@ -1048,8 +1043,6 @@ def digital_pantry_page():
                     conn.commit()
                     st.success("已添加")
                     st.rerun()
-        
-        conn.close()
 
 # ============ 饮食日历 ============
 def calendar_page():
@@ -1061,7 +1054,7 @@ def calendar_page():
     with cal_tabs[0]:
         st.caption("查看过去30天的饮食记录")
         
-        conn = get_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # 获取最近30天的记录
@@ -1074,7 +1067,6 @@ def calendar_page():
         """, (user_id, thirty_days_ago.isoformat()))
         
         records = cursor.fetchall()
-        conn.close()
         
         if records:
             # 按日期分组显示
@@ -1095,7 +1087,7 @@ def calendar_page():
     with cal_tabs[1]:
         st.caption("通过图表回顾你的饮食习惯")
         
-        conn = get_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -1106,7 +1098,6 @@ def calendar_page():
         """, (user_id,))
         history_data = cursor.fetchall()
         column_names = [description[0] for description in cursor.description]
-        conn.close()
 
         if not history_data:
             st.info("还没有足够的饮食记录来生成统计图表哦。")
@@ -1149,7 +1140,9 @@ def settings_page():
     st.write("### ⚙️ 设置")
     
     user_id = st.session_state.current_user['username']
-    prefs = get_user_preferences(user_id)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    prefs = get_user_preferences(conn, user_id) # get_user_preferences doesn't need the cursor, but other parts of the page do.
     
     # 创建标签页
     tabs = st.tabs(["🌶️ 口味偏好", "📖 我的菜谱", "🍽️ 食物管理", "🚫 黑名单", "👤 账户信息"])
@@ -1200,7 +1193,7 @@ def settings_page():
             )
         
         if st.button("💾 保存偏好", use_container_width=True):
-            update_user_preferences(user_id, {
+            update_user_preferences(conn, user_id, {
                 'spicy': spicy,
                 'sweet': sweet,
                 'vegetarian': vegetarian,
@@ -1210,14 +1203,12 @@ def settings_page():
                 'daily_calorie_goal': daily_calorie_goal
             })
             st.success("✅ 已保存，下次推荐时生效！")
-    
+
     # ==== 食物管理 ====
     with tabs[1]: # 我的菜谱
         st.write("#### 📖 我的菜谱")
         st.caption("在这里添加你的私房菜谱，让“智能配餐”更懂你！")
 
-        conn = get_connection()
-        cursor = conn.cursor()
 
         # 显示已有菜谱
         cursor.execute("SELECT id, recipe_name, ingredients FROM user_recipes WHERE user_id = ?", (user_id,))
@@ -1261,9 +1252,6 @@ def settings_page():
 
     with tabs[2]:
         st.write("#### 🍽️ 食物管理")
-        
-        conn = get_connection()
-        cursor = conn.cursor()
         
         # 顶部统计
         cursor.execute("SELECT COUNT(*) as total FROM foods")
@@ -1497,17 +1485,11 @@ def settings_page():
             else:
                 st.warning("⚠️ 请输入食物名称")
         
-        conn.close()
-    
     # ==== 黑名单 ====
     with tabs[3]:
         st.write("#### 我的黑名单")
         st.caption("添加到黑名单的食物将不会出现在推荐中")
         
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        # 获取黑名单（从 user preferences 中）
         blacklist = prefs.get('blacklist', [])
         
         if blacklist:
@@ -1518,7 +1500,7 @@ def settings_page():
                 with col2:
                     if st.button("移除", key=f"rm_black_{item}"):
                         blacklist.remove(item)
-                        update_user_preferences(user_id, {'blacklist': blacklist})
+                        update_user_preferences(conn, user_id, {'blacklist': blacklist})
                         st.rerun()
         else:
             st.info("黑名单为空")
@@ -1531,11 +1513,9 @@ def settings_page():
             if st.button("➕ 添加", key="add_blacklist"):
                 if new_blacklist_item and new_blacklist_item not in blacklist:
                     blacklist.append(new_blacklist_item)
-                    update_user_preferences(user_id, {'blacklist': blacklist})
+                    update_user_preferences(conn, user_id, {'blacklist': blacklist})
                     st.success("✅ 已添加")
                     st.rerun()
-        
-        conn.close()
     
     # ==== 账户信息 ====
     with tabs[4]:
@@ -1545,7 +1525,7 @@ def settings_page():
             st.warning("访客模式不支持上传头像。")
         else:
             # 显示当前头像
-            avatar = get_user_avatar(user_id)
+            avatar = get_user_avatar(conn, user_id)
             if avatar:
                 st.image(avatar, caption="当前头像", width=128)
             else:
@@ -1560,18 +1540,15 @@ def settings_page():
             )
             if uploaded_avatar is not None:
                 avatar_data = uploaded_avatar.getvalue()
-                update_user_avatar(user_id, avatar_data)
+                update_user_avatar(conn, user_id, avatar_data)
                 st.success("✅ 头像更新成功！")
                 time.sleep(0.5)
                 st.rerun()
 
             st.divider()
             
-            conn = get_connection()
-            cursor = conn.cursor()
             cursor.execute("SELECT * FROM users WHERE username = ?", (user_id,))
             user_row = cursor.fetchone()
-            conn.close()
             
             if user_row:
                 user_info = dict(user_row)  # 转换为字典
@@ -1583,18 +1560,19 @@ def settings_page():
         st.divider()
         
         st.write("#### 修改密码")
-        old_pwd = st.text_input("原密码", type="password")
-        new_pwd = st.text_input("新密码", type="password")
-        confirm_pwd = st.text_input("确认密码", type="password")
-        
-        if st.button("🔒 修改密码"):
-            if new_pwd != confirm_pwd:
-                st.error("❗ 两次密码不一致")
-            elif len(new_pwd) < 6:
-                st.error("❗ 密码至少 6 位")
-            else:
-                # 这里应该验证原密码，简化处理
-                st.success("✅ 密码修改成功（功能待完善）")
+        with st.form("change_password_form"):
+            new_pwd = st.text_input("新密码", type="password")
+            confirm_pwd = st.text_input("确认新密码", type="password")
+            if st.form_submit_button("🔒 修改密码"):
+                if not new_pwd:
+                    st.warning("❗ 新密码不能为空！")
+                elif new_pwd != confirm_pwd:
+                    st.error("❗ 两次输入的新密码不一致！")
+                else:
+                    if update_password(conn, user_id, new_pwd):
+                        st.success("✅ 密码修改成功！")
+                    else:
+                        st.error("❌ 密码修改失败，请稍后重试。")
         
         st.divider()
         
@@ -1643,7 +1621,7 @@ def show_food_result_v2(food, time_of_day):
     col_b1, col_b2 = st.columns(2)
     with col_b1:
         if st.button("✅ 确认吃这个", key="confirm_smart", use_container_width=True):
-            conn = get_connection()
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO eat_history (date, meal_time, food_id, food_name, user_id, rating, mode)
@@ -1657,7 +1635,6 @@ def show_food_result_v2(food, time_of_day):
                 rating
             ))
             conn.commit()
-            conn.close()
             
             st.success(f"✅ 已记录到饮食日历！（{auto_meal_time}）")
             # 清空推荐结果
@@ -1701,7 +1678,7 @@ def show_food_result(food, key_prefix="general"):
     rating = st.slider("🌟 满意度", 1, 5, 5, key=f"{key_prefix}_rating")
     
     if st.button("✅ 确认吃这个", key=f"{key_prefix}_confirm", use_container_width=True):
-        conn = get_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO eat_history (date, meal_time, food_id, food_name, user_id, rating, mode)
@@ -1715,7 +1692,6 @@ def show_food_result(food, key_prefix="general"):
             rating
         ))
         conn.commit()
-        conn.close()
         
         st.success("✅ 已记录到饮食日历！")
     

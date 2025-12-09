@@ -3,23 +3,15 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
-from contextlib import contextmanager
 
 DB_PATH = Path("honeyeat.db")
 
 def get_connection():
     """获取数据库连接"""
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    # check_same_thread=False 对于 Streamlit 的多线程环境是必要的
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
-
-@contextmanager
-def db_cursor():
-    """一个用于数据库操作的上下文管理器，自动处理连接和游标。"""
-    conn = get_connection()
-    yield conn.cursor()
-    conn.commit()
-    conn.close()
 
 def initialize_and_seed_database():
     """
@@ -27,8 +19,6 @@ def initialize_and_seed_database():
     如果数据库文件不存在，则创建所有表并填充所有默认数据。
     这个函数会处理所有初始化逻辑，确保操作的原子性。
     """
-def init_database():
-    """初始化数据库表结构"""
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -148,10 +138,6 @@ def init_database():
     if 'user_id' not in pantry_columns and pantry_columns: # 增加 pantry_columns 是否为空的判断
         # 添加列，并为现有数据设置一个默认值
         cursor.execute("ALTER TABLE pantry ADD COLUMN user_id TEXT NOT NULL DEFAULT 'admin'")
-
-
-    conn.commit()
-    conn.close()
 
     # --- 步骤 2: 填充默认数据 (在同一个连接下) ---
     
@@ -312,38 +298,30 @@ def init_database():
 
     # --- 步骤 3: 提交并关闭 ---
     conn.commit()
-    conn.close()
 
 def hash_password(password):
     """密码哈希"""
     return hashlib.sha256(password.encode()).hexdigest()
 
-def create_user(username, name, password, preferences=None):
+def create_user(conn, username, name, password, preferences=None):
     """创建用户"""
-    conn = get_connection()
     cursor = conn.cursor()
     
     prefs = json.dumps(preferences or {})
     pwd_hash = hash_password(password)
     
     try:
-        cursor.execute("""
-            INSERT OR IGNORE INTO users (username, name, password_hash, preferences)
-            VALUES (?, ?, ?, ?)
-        """, (username, name, pwd_hash, prefs))
-        conn.commit()
+        cursor.execute(
+            "INSERT INTO users (username, name, password_hash, preferences) VALUES (?, ?, ?, ?)",
+            (username, name, pwd_hash, prefs)
+        )
         return True
     except sqlite3.IntegrityError:
         # INSERT OR IGNORE 应该可以避免这个，但作为备用
         return False
-    finally:
-        conn.close()
 
-def verify_user(username, password):
+def verify_user(conn, username, password):
     """验证用户登录"""
-    # 注意：此版本将明文密码与哈希后的密码进行比较
-    # 如果数据库中存的是明文，此方法会失败
-    conn = get_connection()
     cursor = conn.cursor()
     
     pwd_hash = hash_password(password)
@@ -352,51 +330,51 @@ def verify_user(username, password):
     """, (username, pwd_hash))
     
     user = cursor.fetchone()
-    conn.close()
-    return dict(user) if user else None
+    
+    if user:
+        return {"success": True, "user": dict(user)}
+    else:
+        # 检查用户名是否存在，以提供更明确的错误信息
+        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+        if cursor.fetchone():
+            return {"success": False, "message": "密码错误"}
+        else:
+            return {"success": False, "message": "用户名不存在"}
 
-def get_user_preferences(username):
+def get_user_preferences(conn, username):
     """获取用户偏好"""
-    conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute("SELECT preferences FROM users WHERE username = ?", (username,))
     result = cursor.fetchone()
-    conn.close()
     
     if result:
         return json.loads(result['preferences'])
     return {}
-
-def update_user_preferences(username, preferences):
+ 
+def update_user_preferences(conn, username, preferences):
     """更新用户偏好"""
-    conn = get_connection()
     cursor = conn.cursor()
     
     prefs_json = json.dumps(preferences)
     cursor.execute("""
         UPDATE users SET preferences = ? WHERE username = ?
     """, (prefs_json, username))
-    
-    conn.commit()
-    conn.close()
-
-def update_user_avatar(username, avatar_data):
+    conn.commit() # Add commit here
+def update_user_avatar(conn, username, avatar_data):
     """更新用户头像"""
-    conn = get_connection()
     cursor = conn.cursor()
     
     try:
         cursor.execute("""
             UPDATE users SET avatar = ? WHERE username = ?
         """, (avatar_data, username))
-        conn.commit()
-    finally:
-        conn.close()
+        conn.commit() # Add commit here
+    except Exception as e:
+        print(f"Error updating avatar: {e}") # Log the error
 
-def get_user_avatar(username):
+def get_user_avatar(conn, username):
     """获取用户头像"""
-    conn = get_connection()
     cursor = conn.cursor()
     
     try:
@@ -404,5 +382,18 @@ def get_user_avatar(username):
         result = cursor.fetchone()
         if result and result['avatar']:
             return result['avatar']
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"Error getting avatar: {e}") # Log the error
+    return None
+
+def update_password(conn, username, new_password):
+    """更新用户密码"""
+    cursor = conn.cursor()
+    new_pwd_hash = hash_password(new_password)
+    try:
+        cursor.execute("UPDATE users SET password_hash = ? WHERE username = ?", (new_pwd_hash, username))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error updating password for {username}: {e}")
+        return False
