@@ -872,47 +872,54 @@ def digital_pantry_page():
         cursor.execute("SELECT * FROM pantry WHERE user_id = ? ORDER BY updated_at DESC", (user_id,))
         items = cursor.fetchall()
         
-        if items:
+        if not items:
+            st.info("冰箱空空如也")
+        else:
+            # 将数据转换为 Pandas DataFrame
+            df = pd.DataFrame(items, columns=[desc[0] for desc in cursor.description])
+
             # 表头
-            col_h1, col_h2, col_h3 = st.columns([5, 2, 3])
+            col_h1, col_h2, col_h3, col_h4 = st.columns([4, 2, 3, 1])
             with col_h1:
                 st.caption("食材")
             with col_h2:
                 st.caption("数量")
             with col_h3:
+                st.caption("更新时间")
+            with col_h4:
                 st.caption("操作")
             st.divider()
 
-            for item in items:
-                col1, col2, col3 = st.columns([5, 2, 3])
+            # 遍历 DataFrame 来显示每一行
+            for index, item in df.iterrows():
+                col1, col2, col3, col4 = st.columns([4, 2, 3, 1])
                 with col1:
                     st.markdown(f"<div style='padding-top: 8px;'>{item['food_name']}</div>", unsafe_allow_html=True)
                 with col2:
                     st.markdown(f"<div style='text-align: center; padding-top: 8px; font-weight: bold;'>{item['quantity']}</div>", unsafe_allow_html=True)
                 with col3:
-                    # 在操作列内部再创建列来放置按钮，使其更紧凑
-                    btn_col1, btn_col2, btn_col3 = st.columns(3)
-                    with btn_col1:
-                        if st.button("➖", key=f"decr_pantry_{item['id']}", use_container_width=True): # type: ignore
-                            new_qty = item['quantity'] - 1
-                            if new_qty > 0:
-                                cursor.execute("UPDATE pantry SET quantity = ? WHERE id = ?", (new_qty, item['id']))
-                            else:
-                                cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
-                            conn.commit() # type: ignore
-                            st.rerun()
-                    with btn_col2:
-                        if st.button("➕", key=f"incr_pantry_{item['id']}", use_container_width=True):
-                            cursor.execute("UPDATE pantry SET quantity = quantity + 1 WHERE id = ?", (item['id'],))
+                    update_time = pd.to_datetime(item['updated_at']).strftime('%Y-%m-%d %H:%M')
+                    st.markdown(f"<div style='padding-top: 8px; font-size: 0.9em; color: #888;'>{update_time}</div>", unsafe_allow_html=True)
+                
+                with col4:
+                    # 使用 popover 来放置操作按钮，使界面更紧凑
+                    with st.popover("操作", use_container_width=True):
+                        if st.button("➕ 增加", key=f"incr_pantry_{item['id']}", use_container_width=True):
+                            cursor.execute("UPDATE pantry SET quantity = quantity + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (item['id'],))
                             conn.commit()
                             st.rerun()
-                    with btn_col3:
-                        if st.button("🗑️", key=f"del_pantry_{item['id']}", use_container_width=True):
+                        if st.button("➖ 减少", key=f"decr_pantry_{item['id']}", use_container_width=True):
+                            new_qty = item['quantity'] - 1
+                            if new_qty > 0:
+                                cursor.execute("UPDATE pantry SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (new_qty, item['id']))
+                            else: # 数量为0时直接删除
+                                cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
+                            conn.commit()
+                            st.rerun()
+                        if st.button("🗑️ 删除", key=f"del_pantry_{item['id']}", use_container_width=True, type="primary"):
                             cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
                             conn.commit()
                             st.rerun()
-        else:
-            st.info("冰箱空空如也")
         
         st.divider()
         st.write("#### 添加库存")
