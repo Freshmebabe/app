@@ -1,7 +1,3 @@
 streamlit>=1.28.0
 pandas
 plotly
-streamlit-cookies-manager
-
-# The comment below is added to force a rebuild on Streamlit Cloud
-# Version: 1.0

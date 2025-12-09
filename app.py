@@ -6,7 +6,6 @@ import base64
 from collections import defaultdict
 import pandas as pd
 import plotly.express as px
-from st_cookies_manager import EncryptedCookieManager
 from datetime import datetime, timedelta
 from database import (
     init_default_data, verify_user, get_connection,
@@ -147,38 +146,6 @@ st.markdown("""
 # 初始化数据库
 init_default_data()
 
-# --- Cookie 管理器，用于实现 "记住我" ---
-# 为了安全，加密密码应该设置为 Streamlit secrets。
-# 在本地，如果 secrets 不可用，它会回退到一个默认密码（仅用于开发）。
-cookies = EncryptedCookieManager(
-    password=st.secrets.get("cookie_password", "a_default_password_for_local_dev_32_bytes_long"),
-    prefix="honeyeat_app_"
-)
-if not cookies.ready():
-    cookies.load()
-
-def auto_login_with_cookie():
-    """在应用加载时，检查 "记住我" 的 cookie 并尝试自动登录"""
-    # 如果用户未登录，并且 cookie 已就绪
-    if not st.session_state.get('logged_in') and cookies.ready():
-        remembered_username = cookies.get("remember_me_username")
-        if remembered_username:
-            try:
-                # 从数据库验证用户是否存在
-                conn = get_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM users WHERE username = ?", (remembered_username,))
-                user_data = cursor.fetchone()
-                conn.close()
-
-                if user_data:
-                    st.session_state.logged_in = True
-                    st.session_state.current_user = dict(user_data)
-                    # 自动登录后，为了安全可以刷新一下页面
-                    st.rerun()
-            except Exception:
-                pass # 静默失败
-
 # Session state 初始化
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -208,7 +175,6 @@ def login_page():
         st.write("### 请登录")
         username = st.text_input("用户名", key="login_username")
         password = st.text_input("密码", type="password", key="login_password")
-        remember_me = st.checkbox("记住我 (30天)", value=True)
         
         col_a, col_b = st.columns(2)
         with col_a:
@@ -220,10 +186,6 @@ def login_page():
                         st.session_state.current_user = user
                         st.success(f"欢迎回来，{user['name']}！")
 
-                        if remember_me:
-                            # 如果勾选了“记住我”，则设置一个有效期为30天的cookie
-                            cookies['remember_me_username'] = user['username']
-                            cookies.save(expires_at=datetime.now() + timedelta(days=30))
                         time.sleep(0.5)
                         st.rerun()
                     else:
@@ -293,9 +255,6 @@ def main_app():
                 btn_col1, btn_col2 = st.columns(2)
                 with btn_col1:
                     if st.button("确认", key="confirm_logout_dialog", use_container_width=True, type="primary"):
-                        # 退出登录时，清除 "记住我" 的 cookie
-                        if cookies.get("remember_me_username"):
-                            del cookies['remember_me_username']
                         st.session_state.logged_in = False
                         st.session_state.current_user = None
                         st.session_state.show_logout_confirmation = False
@@ -754,10 +713,11 @@ def cook_or_order_page():
     if lazy_level <= 3:
         st.write("#### 💪 推荐：自己做饭")
         st.info("冰箱里有这些食材可以做：")
+        user_id = st.session_state.current_user['username']
         
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM pantry WHERE quantity > 0 LIMIT 5")
+        cursor.execute("SELECT * FROM pantry WHERE user_id = ? AND quantity > 0 LIMIT 5", (user_id,))
         items = cursor.fetchall()
         conn.close()
         
@@ -865,7 +825,6 @@ def recommend_from_pantry():
 
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT food_name FROM pantry WHERE quantity > 0")
     # 修复：查询冰箱食材时必须指定当前用户
     cursor.execute("SELECT food_name FROM pantry WHERE quantity > 0 AND user_id = ?", (user_id,))
     # 将食材名称转换为集合以便快速查找
@@ -1745,9 +1704,6 @@ def show_food_result(food, key_prefix="general"):
         st.write(f"📖 [查看菜谱]({food['recipe_link']})")
 
 # ============ 主入口 ============
-# 尝试自动登录
-auto_login_with_cookie()
-
 if not st.session_state.logged_in:
     login_page()
 else:
