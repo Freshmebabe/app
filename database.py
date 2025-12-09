@@ -21,6 +21,12 @@ def db_cursor():
     conn.commit()
     conn.close()
 
+def initialize_and_seed_database():
+    """
+    统一的数据库初始化函数。
+    如果数据库文件不存在，则创建所有表并填充所有默认数据。
+    这个函数会处理所有初始化逻辑，确保操作的原子性。
+    """
 def init_database():
     """初始化数据库表结构"""
     conn = get_connection()
@@ -147,107 +153,23 @@ def init_database():
     conn.commit()
     conn.close()
 
-def hash_password(password):
-    """密码哈希"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def create_user(username, name, password, preferences=None):
-    """创建用户"""
-    conn = get_connection()
-    cursor = conn.cursor()
+    # --- 步骤 2: 填充默认数据 (在同一个连接下) ---
     
-    prefs = json.dumps(preferences or {})
-    pwd_hash = hash_password(password)
-    
+    # 默认用户
+    default_users = [
+        ("admin", "管理员", hash_password("admin123"), json.dumps({"role": "admin"})),
+        ("bf", "男朋友", hash_password("bf123"), json.dumps({"spicy": True, "sweet": False})),
+        ("gf", "女朋友", hash_password("gf123"), json.dumps({"spicy": False, "sweet": True})),
+    ]
     try:
-        cursor.execute("""
+        cursor.executemany("""
             INSERT OR IGNORE INTO users (username, name, password_hash, preferences)
             VALUES (?, ?, ?, ?)
-        """, (username, name, pwd_hash, prefs))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        # INSERT OR IGNORE 应该可以避免这个，但作为备用
-        return False
-    finally:
-        conn.close()
+        """, default_users)
+    except Exception as e:
+        print(f"插入默认用户数据出错: {e}")
 
-def verify_user(username, password):
-    """验证用户登录"""
-    # 注意：此版本将明文密码与哈希后的密码进行比较
-    # 如果数据库中存的是明文，此方法会失败
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    pwd_hash = hash_password(password)
-    cursor.execute("""
-        SELECT * FROM users WHERE username = ? AND password_hash = ?
-    """, (username, pwd_hash))
-    
-    user = cursor.fetchone()
-    conn.close()
-    return dict(user) if user else None
-
-def get_user_preferences(username):
-    """获取用户偏好"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT preferences FROM users WHERE username = ?", (username,))
-    result = cursor.fetchone()
-    conn.close()
-    
-    if result:
-        return json.loads(result['preferences'])
-    return {}
-
-def update_user_preferences(username, preferences):
-    """更新用户偏好"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    prefs_json = json.dumps(preferences)
-    cursor.execute("""
-        UPDATE users SET preferences = ? WHERE username = ?
-    """, (prefs_json, username))
-    
-    conn.commit()
-    conn.close()
-
-def update_user_avatar(username, avatar_data):
-    """更新用户头像"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute("""
-            UPDATE users SET avatar = ? WHERE username = ?
-        """, (avatar_data, username))
-        conn.commit()
-    finally:
-        conn.close()
-
-def get_user_avatar(username):
-    """获取用户头像"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute("SELECT avatar FROM users WHERE username = ?", (username,))
-        result = cursor.fetchone()
-        if result and result['avatar']:
-            return result['avatar']
-    finally:
-        conn.close()
-    return None
-
-def seed_default_data():
-    """填充默认的用户和食物数据（不创建表）"""
-    # 创建默认用户（如果不存在）
-    create_user("admin", "管理员", "admin123", {"role": "admin"})
-    create_user("bf", "男朋友", "bf123", {"spicy": True, "sweet": False})
-    create_user("gf", "女朋友", "gf123", {"spicy": False, "sweet": True})
-    
+    # 默认食物
     default_foods = [
         # 原有数据
         ("麻辣香锅", "中餐", "$$$", "Spicy", None),
@@ -380,17 +302,107 @@ def seed_default_data():
         ("波士顿龙虾", "大餐", "$$$", "CheatMeal", None),
         ("自助餐", "大餐", "$$$", "CheatMeal", None),
     ]
-    
-    conn = get_connection()
-    cursor = conn.cursor()
-    
     try:
         cursor.executemany("""
             INSERT OR IGNORE INTO foods (name, category, cost_level, health_tag, recipe_link)
             VALUES (?, ?, ?, ?, ?)
         """, default_foods)
-        conn.commit()
     except Exception as e:
-        print(f"插入默认数据出错: {e}")
+        print(f"插入默认食物数据出错: {e}")
+
+    # --- 步骤 3: 提交并关闭 ---
+    conn.commit()
+    conn.close()
+
+def hash_password(password):
+    """密码哈希"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def create_user(username, name, password, preferences=None):
+    """创建用户"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    prefs = json.dumps(preferences or {})
+    pwd_hash = hash_password(password)
+    
+    try:
+        cursor.execute("""
+            INSERT OR IGNORE INTO users (username, name, password_hash, preferences)
+            VALUES (?, ?, ?, ?)
+        """, (username, name, pwd_hash, prefs))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        # INSERT OR IGNORE 应该可以避免这个，但作为备用
+        return False
+    finally:
+        conn.close()
+
+def verify_user(username, password):
+    """验证用户登录"""
+    # 注意：此版本将明文密码与哈希后的密码进行比较
+    # 如果数据库中存的是明文，此方法会失败
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    pwd_hash = hash_password(password)
+    cursor.execute("""
+        SELECT * FROM users WHERE username = ? AND password_hash = ?
+    """, (username, pwd_hash))
+    
+    user = cursor.fetchone()
+    conn.close()
+    return dict(user) if user else None
+
+def get_user_preferences(username):
+    """获取用户偏好"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT preferences FROM users WHERE username = ?", (username,))
+    result = cursor.fetchone()
+    conn.close()
+    
+    if result:
+        return json.loads(result['preferences'])
+    return {}
+
+def update_user_preferences(username, preferences):
+    """更新用户偏好"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    prefs_json = json.dumps(preferences)
+    cursor.execute("""
+        UPDATE users SET preferences = ? WHERE username = ?
+    """, (prefs_json, username))
+    
+    conn.commit()
+    conn.close()
+
+def update_user_avatar(username, avatar_data):
+    """更新用户头像"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+            UPDATE users SET avatar = ? WHERE username = ?
+        """, (avatar_data, username))
+        conn.commit()
+    finally:
+        conn.close()
+
+def get_user_avatar(username):
+    """获取用户头像"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("SELECT avatar FROM users WHERE username = ?", (username,))
+        result = cursor.fetchone()
+        if result and result['avatar']:
+            return result['avatar']
     finally:
         conn.close()
