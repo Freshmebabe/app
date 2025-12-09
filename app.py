@@ -128,7 +128,7 @@ st.markdown("""
     }
     .user-nav-name {
         font-weight: bold;
-        text-align: center;
+        text-align: center; 
     }
     
     /* 隐藏streamlit默认元素 */
