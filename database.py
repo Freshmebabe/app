@@ -13,20 +13,6 @@ def get_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-def get_db():
-    """
-    获取数据库连接，如果数据库不存在，则先进行初始化。
-    这是推荐的获取数据库连接的方式。
-    """
-    db_exists = os.path.exists(DB_PATH)
-    conn = get_connection()
-    if not db_exists:
-        print("数据库文件不存在，正在进行首次初始化...")
-        # 在同一个连接上执行初始化
-        initialize_and_seed_database(conn)
-        print("✅ 数据库初始化完成！")
-    return conn
-
 def initialize_and_seed_database(conn):
     """
     统一的数据库初始化函数。
