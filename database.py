@@ -2,9 +2,9 @@ import sqlite3
 import hashlib
 import json
 from datetime import datetime
-from pathlib import Path
+import os
 
-DB_PATH = Path("honeyeat.db")
+DB_PATH = "honeyeat.db"
 
 def get_connection():
     """获取数据库连接"""
@@ -18,7 +18,7 @@ def get_db():
     获取数据库连接，如果数据库不存在，则先进行初始化。
     这是推荐的获取数据库连接的方式。
     """
-    db_exists = DB_PATH.exists()
+    db_exists = os.path.exists(DB_PATH)
     conn = get_connection()
     if not db_exists:
         print("数据库文件不存在，正在进行首次初始化...")

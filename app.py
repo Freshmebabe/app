@@ -7,8 +7,9 @@ from collections import defaultdict
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
+import os
 from database import (
-    get_db, verify_user, 
+    get_connection, initialize_and_seed_database, verify_user, 
     get_user_preferences, update_user_preferences, get_user_avatar, update_user_avatar, update_password
 ) 
 
@@ -168,8 +169,8 @@ def get_db_connection():
     在首次调用时，会检查数据库是否存在，如果不存在，则执行完整的初始化。
     这个过程是阻塞的，确保在返回连接之前，数据库已准备就绪。
     """
-    db_path = Path("honeyeat.db")
-    db_exists = db_path.exists()
+    db_path = "honeyeat.db"
+    db_exists = os.path.exists(db_path)
     
     # 无论是否存在，都先获取连接。如果文件不存在，sqlite3会自动创建。
     conn = get_connection()
