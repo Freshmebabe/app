@@ -348,7 +348,7 @@ def show_health_checkin():
     
     cursor.execute("""
         SELECT * FROM health_checkin 
-        WHERE date = ? AND user_id = ?
+        WHERE date = %s AND user_id = %s
     """, (today.isoformat(), user_id))
     
     checkin = cursor.fetchone()
@@ -366,13 +366,13 @@ def show_health_checkin():
         if checkin:
             cursor.execute("""
                 UPDATE health_checkin 
-                SET water_checked = ?, fruit_checked = ?
-                WHERE date = ? AND user_id = ?
+                SET water_checked = %s, fruit_checked = %s
+                WHERE date = %s AND user_id = %s
             """, (int(water), int(fruit), today.isoformat(), user_id))
         else:
             cursor.execute("""
                 INSERT INTO health_checkin (date, user_id, water_checked, fruit_checked)
-                VALUES (?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s)
             """, (today.isoformat(), user_id, int(water), int(fruit)))
         conn.commit() # 仅在数据变化时提交
     
@@ -391,7 +391,7 @@ def show_health_reminder():
         SELECT f.health_tag, COUNT(*) as cnt
         FROM eat_history e
         LEFT JOIN foods f ON e.food_id = f.id
-        WHERE e.user_id = ? AND e.date >= ?
+        WHERE e.user_id = %s AND e.date >= %s
         GROUP BY f.health_tag
     """, (user_id, three_days_ago.isoformat()))
     
@@ -497,7 +497,7 @@ def get_smart_recommendation_v2(time_of_day, mood, appetite, flavor_prefer, time
     params = []
     if exclude_recent:
         three_days_ago = (datetime.now() - timedelta(days=3)).date()
-        query += " AND id NOT IN (SELECT food_id FROM eat_history WHERE user_id = ? AND date >= ?)"
+        query += " AND id NOT IN (SELECT food_id FROM eat_history WHERE user_id = %s AND date >= %s)"
         params.extend([user_id, three_days_ago.isoformat()])
     
     cursor.execute(query, params)
@@ -748,7 +748,7 @@ def cook_or_order_page():
         
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM pantry WHERE user_id = ? AND quantity > 0 LIMIT 5", (user_id,))
+        cursor.execute("SELECT * FROM pantry WHERE user_id = %s AND quantity > 0 LIMIT 5", (user_id,))
         items = cursor.fetchall()
         
         if items:
@@ -840,7 +840,7 @@ def recommend_from_pantry():
     user_id = st.session_state.current_user['username']
     conn_user_recipe = get_db_connection() # This is already cached, no need for a separate variable
     cursor_user_recipe = conn_user_recipe.cursor()
-    cursor_user_recipe.execute("SELECT recipe_name, ingredients FROM user_recipes WHERE user_id = ?", (user_id,))
+    cursor_user_recipe.execute("SELECT recipe_name, ingredients FROM user_recipes WHERE user_id = %s", (user_id,))
     user_recipes = cursor_user_recipe.fetchall()
 
     for rec in user_recipes:
@@ -853,7 +853,7 @@ def recommend_from_pantry():
     conn = get_db_connection()
     cursor = conn.cursor()
     # 修复：查询冰箱食材时必须指定当前用户
-    cursor.execute("SELECT food_name FROM pantry WHERE quantity > 0 AND user_id = ?", (user_id,))
+    cursor.execute("SELECT food_name FROM pantry WHERE quantity > 0 AND user_id = %s", (user_id,))
     # 将食材名称转换为集合以便快速查找
     available_ingredients = {item['food_name'] for item in cursor.fetchall()}
 
@@ -895,7 +895,7 @@ def digital_pantry_page():
         conn = get_db_connection()
         cursor = conn.cursor()
         user_id = st.session_state.current_user['username']
-        cursor.execute("SELECT * FROM pantry WHERE user_id = ? ORDER BY updated_at DESC", (user_id,))
+        cursor.execute("SELECT * FROM pantry WHERE user_id = %s ORDER BY updated_at DESC", (user_id,))
         items = cursor.fetchall()
         
         if not items:
@@ -931,19 +931,19 @@ def digital_pantry_page():
                     # 使用 popover 来放置操作按钮，使界面更紧凑
                     with st.popover("操作", use_container_width=True):
                         if st.button("➕ 增加", key=f"incr_pantry_{item['id']}", use_container_width=True):
-                            cursor.execute("UPDATE pantry SET quantity = quantity + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (item['id'],))
+                            cursor.execute("UPDATE pantry SET quantity = quantity + 1, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (item['id'],))
                             conn.commit()
                             st.rerun()
                         if st.button("➖ 减少", key=f"decr_pantry_{item['id']}", use_container_width=True):
                             new_qty = item['quantity'] - 1
                             if new_qty > 0:
-                                cursor.execute("UPDATE pantry SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (new_qty, item['id']))
+                                cursor.execute("UPDATE pantry SET quantity = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (new_qty, item['id']))
                             else: # 数量为0时直接删除
-                                cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
+                                cursor.execute("DELETE FROM pantry WHERE id = %s", (item['id'],))
                             conn.commit()
                             st.rerun()
                         if st.button("🗑️ 删除", key=f"del_pantry_{item['id']}", use_container_width=True, type="primary"):
-                            cursor.execute("DELETE FROM pantry WHERE id = ?", (item['id'],))
+                            cursor.execute("DELETE FROM pantry WHERE id = %s", (item['id'],))
                             conn.commit()
                             st.rerun()
         
@@ -959,7 +959,7 @@ def digital_pantry_page():
                 if new_food:
                     cursor.execute("""
                         INSERT INTO pantry (food_name, quantity, status, user_id)
-                        VALUES (?, ?, '充足', ?)
+                        VALUES (%s, %s, '充足', %s)
                     """, (new_food, new_qty, user_id))
                     conn.commit()
                     st.success(f"已添加 {new_food}")
@@ -1015,7 +1015,7 @@ def digital_pantry_page():
                             user_id = st.session_state.current_user['username']
                             for item in rec['missing']:
                                 # 简单处理：如果不存在则添加
-                                cursor.execute("INSERT OR IGNORE INTO shopping_list (item_name, user_id) VALUES (?, ?)", (item, user_id))
+                                cursor.execute("INSERT INTO shopping_list (item_name, user_id) VALUES (%s, %s)", (item, user_id))
                             conn.commit()
                             st.toast(f"“{missing_str}” 已加入待买清单！")
                             time.sleep(0.5)
@@ -1029,7 +1029,7 @@ def digital_pantry_page():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM shopping_list WHERE is_bought = 0")
         user_id = st.session_state.current_user['username']
-        items = cursor.execute("SELECT * FROM shopping_list WHERE is_bought = 0 AND user_id = ?", (user_id,)).fetchall()
+        items = cursor.execute("SELECT * FROM shopping_list WHERE is_bought = 0 AND user_id = %s", (user_id,)).fetchall()
         
         if items:
             for item in items:
@@ -1040,7 +1040,7 @@ def digital_pantry_page():
                     st.caption(f"x{item['quantity']}")
                 with col3:
                     if st.button("删除", key=f"del_shop_{item['id']}"):
-                        cursor.execute("DELETE FROM shopping_list WHERE id = ?", (item['id'],))
+                        cursor.execute("DELETE FROM shopping_list WHERE id = %s", (item['id'],))
                         conn.commit()
                         st.rerun()
         else:
@@ -1055,7 +1055,7 @@ def digital_pantry_page():
                 if new_item:
                     cursor.execute("""
                         INSERT INTO shopping_list (item_name, user_id)
-                        VALUES (?, ?)
+                        VALUES (%s, %s)
                     """, (new_item, st.session_state.current_user['username']))
                     conn.commit()
                     st.success("已添加")
@@ -1079,7 +1079,7 @@ def calendar_page():
         cursor.execute("""
             SELECT date, food_name, meal_time, rating
             FROM eat_history
-            WHERE user_id = ? AND date >= ?
+            WHERE user_id = %s AND date >= %s
             ORDER BY date DESC, created_at DESC
         """, (user_id, thirty_days_ago.isoformat()))
         
@@ -1111,7 +1111,7 @@ def calendar_page():
             SELECT e.date, e.meal_time, e.food_name, e.rating, f.health_tag
             FROM eat_history e
             LEFT JOIN foods f ON e.food_name = f.name
-            WHERE e.user_id = ?
+            WHERE e.user_id = %s
         """, (user_id,))
         history_data = cursor.fetchall()
         column_names = [description[0] for description in cursor.description]
@@ -1228,7 +1228,7 @@ def settings_page():
 
 
         # 显示已有菜谱
-        cursor.execute("SELECT id, recipe_name, ingredients FROM user_recipes WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT id, recipe_name, ingredients FROM user_recipes WHERE user_id = %s", (user_id,))
         my_recipes = cursor.fetchall()
 
         if my_recipes:
@@ -1240,7 +1240,7 @@ def settings_page():
                     st.caption(f"需要: {', '.join(ingredients_list)}")
                 with col2:
                     if st.button("🗑️ 删除", key=f"del_recipe_{recipe['id']}", use_container_width=True):
-                        cursor.execute("DELETE FROM user_recipes WHERE id = ?", (recipe['id'],))
+                        cursor.execute("DELETE FROM user_recipes WHERE id = %s", (recipe['id'],))
                         conn.commit()
                         st.rerun()
                 st.divider()
@@ -1258,7 +1258,7 @@ def settings_page():
                 ingredients_json = json.dumps(ingredients_list)
                 try:
                     cursor.execute(
-                        "INSERT INTO user_recipes (user_id, recipe_name, ingredients) VALUES (?, ?, ?)",
+                        "INSERT INTO user_recipes (user_id, recipe_name, ingredients) VALUES (%s, %s, %s)",
                         (user_id, new_recipe_name, ingredients_json)
                     )
                     conn.commit()
@@ -1313,11 +1313,11 @@ def settings_page():
         params = []
         
         if search_term:
-            query += " AND name LIKE ?"
+            query += " AND name LIKE %s"
             params.append(f"%{search_term}%")
         
         if filter_category != "全部":
-            query += " AND category = ?"
+            query += " AND category = %s"
             params.append(filter_category)
         
         if filter_status == "已启用":
@@ -1357,7 +1357,7 @@ def settings_page():
                     with col3:
                         st.caption(f"💰 {food['cost_level']}")
                     with col4:
-                        # 将 sqlite3.Row 转换为字典以支持 get 方法
+                        # DictCursor 已支持 dict 访问，额外转换以确保兼容
                         food_dict = dict(food)
                         tag_emoji = {
                             'Healthy': '🥗',
@@ -1374,7 +1374,7 @@ def settings_page():
                         toggle_text = "❌ 禁用" if food['active'] else "✅ 启用"
                         if st.button(toggle_text, key=f"toggle_{food['id']}"):
                             new_status = 0 if food['active'] else 1
-                            cursor.execute("UPDATE foods SET active = ? WHERE id = ?", (new_status, food['id']))
+                            cursor.execute("UPDATE foods SET active = %s WHERE id = %s", (new_status, food['id']))
                             conn.commit()
                             st.rerun()
                     
@@ -1402,7 +1402,7 @@ def settings_page():
                                 )
                             with col_e4:
                                 tags = ["Healthy", "Spicy", "CheatMeal", "Normal"]
-                                # 将 sqlite3.Row 转换为字典以支持 get 方法
+                                # DictCursor 已支持 dict 访问，额外转换以确保兼容
                                 food_dict = dict(food)
                                 edit_tag = st.selectbox(
                                     "标签",
@@ -1416,8 +1416,8 @@ def settings_page():
                                 if st.button("✅ 保存", key=f"save_{food['id']}", use_container_width=True):
                                     cursor.execute("""
                                         UPDATE foods 
-                                        SET name = ?, category = ?, cost_level = ?, health_tag = ?
-                                        WHERE id = ?
+                                        SET name = %s, category = %s, cost_level = %s, health_tag = %s
+                                        WHERE id = %s
                                     """, (edit_name, edit_cat, edit_cost, edit_tag, food['id']))
                                     conn.commit()
                                     st.session_state[f"editing_{food['id']}"] = False
@@ -1430,7 +1430,7 @@ def settings_page():
                                     st.rerun()
                             with col_b3:
                                 if st.button("🗑️ 删除该食物", key=f"delete_{food['id']}", type="secondary", use_container_width=True):
-                                    cursor.execute("DELETE FROM foods WHERE id = ?", (food['id'],))
+                                    cursor.execute("DELETE FROM foods WHERE id = %s", (food['id'],))
                                     conn.commit()
                                     st.session_state[f"editing_{food['id']}"] = False
                                     st.warning("⚠️ 已删除")
@@ -1493,7 +1493,7 @@ def settings_page():
             if new_food_name:
                 cursor.execute("""
                     INSERT INTO foods (name, category, cost_level, health_tag, active)
-                    VALUES (?, ?, ?, ?, 1)
+                    VALUES (%s, %s, %s, %s, 1)
                 """, (new_food_name, new_food_cat, new_food_cost, new_food_tag))
                 conn.commit()
                 st.success(f"✅ 已添加 **{new_food_name}**")
@@ -1564,7 +1564,7 @@ def settings_page():
 
             st.divider()
             
-            cursor.execute("SELECT * FROM users WHERE username = ?", (user_id,))
+            cursor.execute("SELECT * FROM users WHERE username = %s", (user_id,))
             user_row = cursor.fetchone()
             
             if user_row:
@@ -1613,7 +1613,7 @@ def show_food_result_v2(food, time_of_day):
     with col2:
         st.metric("价格", food['cost_level'])
     with col3:
-        # 将 sqlite3.Row 转换为字典以支持 get 方法
+        # DictCursor 已支持 dict 访问，额外转换以确保兼容
         food_dict = dict(food)
         st.metric("标签", food_dict.get('health_tag') or "无")
     
@@ -1642,7 +1642,7 @@ def show_food_result_v2(food, time_of_day):
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO eat_history (date, meal_time, food_id, food_name, user_id, rating, mode)
-                VALUES (?, ?, ?, ?, ?, ?, 'smart')
+                VALUES (%s, %s, %s, %s, %s, %s, 'smart')
             """, (
                 datetime.now().date().isoformat(),
                 auto_meal_time,  # 使用自动推断的餐次
@@ -1666,7 +1666,7 @@ def show_food_result_v2(food, time_of_day):
             st.rerun()
     
     # 显示菜谱链接
-    # 将 sqlite3.Row 转换为字典以支持 get 方法
+    # DictCursor 已支持 dict 访问，额外转换以确保兼容
     food_dict = dict(food)
     if food_dict.get('recipe_link'):
         st.write(f"📖 [查看菜谱]({food['recipe_link']})")
@@ -1686,7 +1686,7 @@ def show_food_result(food, key_prefix="general"):
     with col2:
         st.metric("价格", food['cost_level'])
     with col3:
-        # 将 sqlite3.Row 转换为字典以支持 get 方法
+        # DictCursor 已支持 dict 访问，额外转换以确保兼容
         food_dict = dict(food)
         st.metric("标签", food_dict.get('health_tag') or "无")
     
@@ -1699,7 +1699,7 @@ def show_food_result(food, key_prefix="general"):
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO eat_history (date, meal_time, food_id, food_name, user_id, rating, mode)
-            VALUES (?, ?, ?, ?, ?, ?, 'random')
+            VALUES (%s, %s, %s, %s, %s, %s, 'random')
         """, (
             datetime.now().date().isoformat(),
             meal_time,

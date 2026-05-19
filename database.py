@@ -1,15 +1,26 @@
-import sqlite3
+import os
 import json
 from datetime import datetime
-import os
-
-DB_PATH = "honeyeat.db"
+import psycopg2
+import psycopg2.errors
+from psycopg2.extras import DictCursor
 
 def get_connection():
-    """获取数据库连接"""
-    # check_same_thread=False 对于 Streamlit 的多线程环境是必要的
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10)
-    conn.row_factory = sqlite3.Row
+    """获取PostgreSQL数据库连接（自动使用DictCursor）"""
+    conn = psycopg2.connect(
+        dbname=os.getenv('POSTGRES_DB', 'honeyeat'),
+        user=os.getenv('POSTGRES_USER', 'postgres'),
+        password=os.getenv('POSTGRES_PASSWORD', ''),
+        host=os.getenv('POSTGRES_HOST', 'localhost'),
+        port=os.getenv('POSTGRES_PORT', '5432')
+    )
+    conn.autocommit = True
+    # 让所有 cursor() 调用默认返回 DictCursor，使行数据可通过列名访问
+    _original_cursor = conn.cursor
+    def _dict_cursor(*args, **kwargs):
+        kwargs.setdefault('cursor_factory', DictCursor)
+        return _original_cursor(*args, **kwargs)
+    conn.cursor = _dict_cursor
     return conn
 
 def initialize_and_seed_database(conn):
@@ -23,34 +34,41 @@ def initialize_and_seed_database(conn):
     # 用户表
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            password TEXT NOT NULL,
+            username VARCHAR(255) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            password VARCHAR(255) NOT NULL,
             preferences TEXT DEFAULT '{}',
-            avatar BLOB,
+            avatar BYTEA,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
     # 检查并添加 avatar 列（用于兼容旧数据库）
-    cursor.execute("PRAGMA table_info(users)")
-    columns = [info[1] for info in cursor.fetchall()]
-    if 'avatar' not in columns:
-        cursor.execute("ALTER TABLE users ADD COLUMN avatar BLOB")
+    cursor.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='users' AND column_name='avatar'
+    """)
+    if not cursor.fetchone():
+        cursor.execute("ALTER TABLE users ADD COLUMN avatar BYTEA")
+    
     # 兼容性修改：如果旧的 password_hash 列存在，则重命名为 password
-    if 'password_hash' in columns and 'password' not in columns:
-        # 在重命名之前，需要禁用外键约束
-        cursor.execute("PRAGMA foreign_keys=off")
+    cursor.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='users' AND column_name='password_hash'
+    """)
+    if cursor.fetchone():
         cursor.execute("ALTER TABLE users RENAME COLUMN password_hash TO password")
     
     # 食物全库
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS foods (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            category TEXT NOT NULL,
-            cost_level TEXT DEFAULT '$$',
-            health_tag TEXT,
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL UNIQUE,
+            category VARCHAR(255) NOT NULL,
+            cost_level VARCHAR(10) DEFAULT '$$',
+            health_tag VARCHAR(255),
             recipe_link TEXT,
             active INTEGER DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -60,11 +78,11 @@ def initialize_and_seed_database(conn):
     # 冰箱/库存
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pantry (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            food_name TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            food_name VARCHAR(255) NOT NULL,
             quantity INTEGER DEFAULT 0,
-            status TEXT DEFAULT '充足',
+            status VARCHAR(50) DEFAULT '充足',
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(username)
         )
@@ -73,14 +91,14 @@ def initialize_and_seed_database(conn):
     # 饮食历史
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS eat_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             date DATE NOT NULL,
-            meal_time TEXT,
+            meal_time VARCHAR(50),
             food_id INTEGER,
-            food_name TEXT,
-            user_id TEXT,
+            food_name VARCHAR(255),
+            user_id VARCHAR(255),
             rating INTEGER,
-            mode TEXT,
+            mode VARCHAR(50),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (food_id) REFERENCES foods(id),
             FOREIGN KEY (user_id) REFERENCES users(username)
@@ -90,9 +108,9 @@ def initialize_and_seed_database(conn):
     # 健康打卡
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS health_checkin (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             date DATE NOT NULL,
-            user_id TEXT,
+            user_id VARCHAR(255),
             water_checked INTEGER DEFAULT 0,
             fruit_checked INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -103,11 +121,11 @@ def initialize_and_seed_database(conn):
     # 待买清单
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS shopping_list (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_name TEXT NOT NULL,
-            user_id TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            item_name VARCHAR(255) NOT NULL,
+            user_id VARCHAR(255) NOT NULL,
             quantity INTEGER DEFAULT 1,
-            category TEXT,
+            category VARCHAR(255),
             is_bought INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(username)
@@ -117,9 +135,9 @@ def initialize_and_seed_database(conn):
     # 用户自定义菜谱表
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_recipes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            recipe_name TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            recipe_name VARCHAR(255) NOT NULL,
             ingredients TEXT NOT NULL, -- JSON array of strings
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(username),
@@ -129,18 +147,28 @@ def initialize_and_seed_database(conn):
 
     # --- 数据库迁移脚本 (用于兼容旧数据库) ---
     # 检查并为 shopping_list 表添加 user_id 列
-    cursor.execute("PRAGMA table_info(shopping_list)")
-    shopping_list_columns = [info[1] for info in cursor.fetchall()]
-    if 'user_id' not in shopping_list_columns:
-        # 添加列，并为现有数据设置一个默认值（例如 'admin'），避免 NOT NULL 约束失败
-        cursor.execute("ALTER TABLE shopping_list ADD COLUMN user_id TEXT NOT NULL DEFAULT 'admin'")
+    cursor.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='shopping_list' AND column_name='user_id'
+    """)
+    if not cursor.fetchone():
+        cursor.execute("""
+            ALTER TABLE shopping_list 
+            ADD COLUMN user_id VARCHAR(255) NOT NULL DEFAULT 'admin'
+        """)
 
     # 检查并为 pantry 表添加 user_id 列
-    cursor.execute("PRAGMA table_info(pantry)")
-    pantry_columns = [info[1] for info in cursor.fetchall()]
-    if 'user_id' not in pantry_columns and pantry_columns: # 增加 pantry_columns 是否为空的判断
-        # 添加列，并为现有数据设置一个默认值
-        cursor.execute("ALTER TABLE pantry ADD COLUMN user_id TEXT NOT NULL DEFAULT 'admin'")
+    cursor.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='pantry' AND column_name='user_id'
+    """)
+    if not cursor.fetchone():
+        cursor.execute("""
+            ALTER TABLE pantry 
+            ADD COLUMN user_id VARCHAR(255) NOT NULL DEFAULT 'admin'
+        """)
 
     # --- 步骤 2: 填充默认数据 (在同一个连接下) ---
     
@@ -152,8 +180,9 @@ def initialize_and_seed_database(conn):
     ]
     try:
         cursor.executemany("""
-            INSERT OR IGNORE INTO users (username, name, password, preferences)
-            VALUES (?, ?, ?, ?) ON CONFLICT(username) DO NOTHING
+            INSERT INTO users (username, name, password, preferences)
+            VALUES (%s, %s, %s, %s) 
+            ON CONFLICT(username) DO NOTHING
         """, default_users)
     except Exception as e:
         print(f"插入默认用户数据出错: {e}")
@@ -186,18 +215,6 @@ def initialize_and_seed_database(conn):
 
         # 家常菜
         ("青椒肉丝", "家常菜", "$", "Normal", None),
-        ("可乐鸡翅", "家常菜", "$", "Sweet", None),
-        ("红烧排骨", "家常菜", "$$", "CheatMeal", None),
-        ("蒜蓉西兰花", "家常菜", "$", "Healthy", None),
-        ("蚂蚁上树", "家常菜", "$$", "Spicy", None),
-        ("麻婆豆腐", "家常菜", "$", "Spicy", None),
-        ("农家小炒肉", "家常菜", "$$", "Spicy", None),
-        ("拍黄瓜", "家常菜", "$", "Healthy", None),
-        ("地三鲜", "家常菜", "$$", "CheatMeal", None),
-        ("清蒸鱼", "家常菜", "$$", "Healthy", None),
-
-        # 西餐
-        ("黑椒牛排", "西餐", "$$$", "CheatMeal", None),
         ("奶油蘑菇汤", "西餐", "$$", "Normal", None),
         ("凯撒沙拉", "西餐", "$$", "Healthy", None),
         ("意大利肉酱面", "西餐", "$$", "Normal", None),
@@ -293,8 +310,9 @@ def initialize_and_seed_database(conn):
     ]
     try:
         cursor.executemany("""
-            INSERT OR IGNORE INTO foods (name, category, cost_level, health_tag, recipe_link)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO foods (name, category, cost_level, health_tag, recipe_link)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT(name) DO NOTHING
         """, default_foods)
     except Exception as e:
         print(f"插入默认食物数据出错: {e}")
@@ -310,18 +328,19 @@ def create_user(conn, username, name, password, preferences=None):
     
     try:
         cursor.execute(
-            "INSERT INTO users (username, name, password, preferences) VALUES (?, ?, ?, ?)",
+            "INSERT INTO users (username, name, password, preferences) VALUES (%s, %s, %s, %s)",
             (username, name, password, prefs)
         )
         conn.commit()
         return True
-    except sqlite3.IntegrityError:
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
         return False
 
 def verify_user(conn, username, password):
     """验证用户登录"""    
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+    cursor.execute("SELECT * FROM users WHERE username = %s AND password = %s", (username, password))
     
     user = cursor.fetchone()
     
@@ -329,7 +348,7 @@ def verify_user(conn, username, password):
         return {"success": True, "user": dict(user)}
     else:
         # 检查用户名是否存在，以提供更明确的错误信息
-        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
         if cursor.fetchone():
             return {"success": False, "message": "密码错误"}
         else:
@@ -339,7 +358,7 @@ def get_user_preferences(conn, username):
     """获取用户偏好"""
     cursor = conn.cursor()
     
-    cursor.execute("SELECT preferences FROM users WHERE username = ?", (username,))
+    cursor.execute("SELECT preferences FROM users WHERE username = %s", (username,))
     result = cursor.fetchone()
     
     if result:
@@ -352,7 +371,7 @@ def update_user_preferences(conn, username, preferences):
     
     prefs_json = json.dumps(preferences)
     cursor.execute("""
-        UPDATE users SET preferences = ? WHERE username = ?
+        UPDATE users SET preferences = %s WHERE username = %s
     """, (prefs_json, username))
     conn.commit() # Add commit here
 def update_user_avatar(conn, username, avatar_data):
@@ -361,7 +380,7 @@ def update_user_avatar(conn, username, avatar_data):
     
     try:
         cursor.execute("""
-            UPDATE users SET avatar = ? WHERE username = ?
+            UPDATE users SET avatar = %s WHERE username = %s
         """, (avatar_data, username))
         conn.commit() # Add commit here
     except Exception as e:
@@ -372,7 +391,7 @@ def get_user_avatar(conn, username):
     cursor = conn.cursor()
     
     try:
-        cursor.execute("SELECT avatar FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT avatar FROM users WHERE username = %s", (username,))
         result = cursor.fetchone()
         if result and result['avatar']:
             return result['avatar']
@@ -384,7 +403,7 @@ def update_password(conn, username, new_password):
     """更新用户密码"""
     cursor = conn.cursor()
     try:
-        cursor.execute("UPDATE users SET password = ? WHERE username = ?", (new_password, username))
+        cursor.execute("UPDATE users SET password = %s WHERE username = %s", (new_password, username))
         conn.commit()
         return True
     except Exception as e:
