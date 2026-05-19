@@ -3,7 +3,16 @@ import json
 from datetime import datetime
 import psycopg2
 import psycopg2.errors
+import psycopg2.extensions
 from psycopg2.extras import DictCursor
+
+
+class _DictConnection(psycopg2.extensions.connection):
+    """自动为所有 cursor 启用 DictCursor 的连接子类"""
+    def cursor(self, *args, **kwargs):
+        kwargs.setdefault('cursor_factory', DictCursor)
+        return super().cursor(*args, **kwargs)
+
 
 def get_connection():
     """获取PostgreSQL数据库连接（自动使用DictCursor）"""
@@ -20,7 +29,8 @@ def get_connection():
             password=password,
             host=host,
             port=port,
-            connect_timeout=10
+            connect_timeout=10,
+            connection_factory=_DictConnection
         )
     except Exception as e:
         # 判断 Secrets 是否生效（不泄露实际值）
@@ -46,12 +56,6 @@ def get_connection():
             hint = f"原始错误: {e}"
         raise RuntimeError(f"❌ 数据库连接失败！\n{hint}")
     conn.autocommit = True
-    # 让所有 cursor() 调用默认返回 DictCursor，使行数据可通过列名访问
-    _original_cursor = conn.cursor
-    def _dict_cursor(*args, **kwargs):
-        kwargs.setdefault('cursor_factory', DictCursor)
-        return _original_cursor(*args, **kwargs)
-    conn.cursor = _dict_cursor
     return conn
 
 def initialize_and_seed_database(conn):
