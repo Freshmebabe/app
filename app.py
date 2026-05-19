@@ -115,6 +115,62 @@ st.markdown("""
         margin: 1rem 0;
     }
 
+    /* AI推荐结果卡片 */
+    .ai-result-card {
+        background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
+        border: 1px solid #e8ecf1;
+        border-radius: 16px;
+        padding: 1.5rem 2rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 16px rgba(102, 126, 234, 0.08);
+        animation: fadeIn 0.6s ease;
+    }
+    .ai-dish-name {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        margin-bottom: 0.5rem;
+    }
+    .ai-rating {
+        font-size: 1.4rem;
+        color: #f5a623;
+        margin-bottom: 0.6rem;
+        letter-spacing: 2px;
+    }
+    .ai-tag {
+        display: inline-block;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.2rem 0.7rem;
+        border-radius: 20px;
+        margin-right: 0.4rem;
+        margin-bottom: 0.7rem;
+    }
+    .ai-meta {
+        display: flex;
+        gap: 1.2rem;
+        font-size: 0.9rem;
+        color: #555;
+        margin-bottom: 0.8rem;
+        flex-wrap: wrap;
+    }
+    .ai-meta span {
+        background: #f0f2f5;
+        padding: 0.25rem 0.7rem;
+        border-radius: 6px;
+    }
+    .ai-desc {
+        font-style: italic;
+        color: #666;
+        font-size: 1rem;
+        line-height: 1.6;
+        border-left: 3px solid #667eea;
+        padding-left: 1rem;
+        margin-top: 0.8rem;
+    }
+
     /* 头像样式 */
     .user-nav-container {
         display: flex;

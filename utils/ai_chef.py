@@ -27,21 +27,28 @@ def ai_generate_recipe(ingredients: list[str]) -> dict | None:
     
     ingredients_str = "、".join(ingredients)
     
-    system_prompt = """你是一位经验丰富的家庭厨师。用户会告诉你冰箱里有什么食材，请根据这些食材推荐一道美味家常菜。
+    system_prompt = """你是一位经验丰富的家庭厨师兼美食点评家。用户会告诉你冰箱里有什么食材，请根据这些食材推荐一道美味家常菜，并给出详细的美食点评式推荐。
 
 要求：
 1. 优先使用冰箱里已有的食材，尽量不增加额外食材
 2. 如果必须添加1-2种常见调料/食材（如盐、酱油、蒜、葱等），可以在 missing 中列出
-3. 菜名要具体、有食欲
+3. 菜名要具体、有食欲感（如"滋滋冒油的蒜香排骨"而非"排骨"）
 4. 烹饪步骤要简洁实用，3-6步即可
-5. 必须以 JSON 格式回复，不要包含其他内容
+5. description 要生动诱人，描写口感和风味（1-2句话）
+6. 必须以 JSON 格式回复，不要包含其他内容
 
 JSON 格式：
 {
-  "name": "菜名",
+  "name": "有食欲的菜名",
   "needed": ["需要的食材1", "需要的食材2", ...],
   "steps": ["步骤1", "步骤2", ...],
-  "missing": ["缺少的食材1", ...]
+  "missing": ["缺少的食材1", ...],
+  "description": "生动的风味口感描述",
+  "rating": 4.5,
+  "tags": ["快手菜", "下饭神器"],
+  "price_range": "$$",
+  "flavor_profile": "香辣咸鲜",
+  "difficulty": "简单"
 }"""
     
     user_prompt = f"我冰箱里有：{ingredients_str}\n\n请推荐一道我能做的菜。"
@@ -73,6 +80,12 @@ JSON 格式：
             raise ValueError("AI 返回的数据缺少必要字段")
         
         recipe.setdefault("missing", [])
+        recipe.setdefault("description", "")
+        recipe.setdefault("rating", 4.0)
+        recipe.setdefault("tags", [])
+        recipe.setdefault("price_range", "$$")
+        recipe.setdefault("flavor_profile", "")
+        recipe.setdefault("difficulty", "简单")
         return recipe
         
     except json.JSONDecodeError:
