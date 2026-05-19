@@ -1029,7 +1029,8 @@ def digital_pantry_page():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM shopping_list WHERE is_bought = 0")
         user_id = st.session_state.current_user['username']
-        items = cursor.execute("SELECT * FROM shopping_list WHERE is_bought = 0 AND user_id = %s", (user_id,)).fetchall()
+        cursor.execute("SELECT * FROM shopping_list WHERE is_bought = 0 AND user_id = %s", (user_id,))
+        items = cursor.fetchall()
         
         if items:
             for item in items:
