@@ -133,12 +133,18 @@ def _save_food_and_record(food_name: str, category: str = "AI推荐", health_tag
 
     # 确保 is_custom 列存在（兼容旧数据库）
     try:
-        cursor.execute("DELETE FROM foods WHERE is_custom = FALSE")
+        cursor.execute("""
+            DELETE FROM foods WHERE is_custom = FALSE 
+            AND id NOT IN (SELECT DISTINCT food_id FROM eat_history WHERE food_id IS NOT NULL)
+        """)
     except Exception:
         conn.rollback()
         cursor.execute("ALTER TABLE foods ADD COLUMN IF NOT EXISTS is_custom BOOLEAN DEFAULT FALSE")
         conn.commit()
-        cursor.execute("DELETE FROM foods WHERE is_custom = FALSE")
+        cursor.execute("""
+            DELETE FROM foods WHERE is_custom = FALSE
+            AND id NOT IN (SELECT DISTINCT food_id FROM eat_history WHERE food_id IS NOT NULL)
+        """)
 
     # 添加或更新当前菜品
     cursor.execute("SELECT id FROM foods WHERE name = %s", (food_name,))
