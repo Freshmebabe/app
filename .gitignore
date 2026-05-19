@@ -18,3 +18,6 @@ __pycache__/
 venv/
 .venv/
 env/
+
+# 4. Streamlit local secrets
+.streamlit/secrets.toml
