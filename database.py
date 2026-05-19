@@ -429,7 +429,9 @@ def get_user_avatar(conn, username):
         cursor.execute("SELECT avatar FROM users WHERE username = %s", (username,))
         result = cursor.fetchone()
         if result and result['avatar']:
-            return result['avatar']
+            # BYTEA 返回 memoryview，转为 bytes 给 st.image() 使用
+            avatar_data = result['avatar']
+            return bytes(avatar_data) if isinstance(avatar_data, memoryview) else avatar_data
     except Exception as e:
         print(f"Error getting avatar: {e}") # Log the error
     return None
