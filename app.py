@@ -8,12 +8,12 @@ from database import (
 )
 
 # 页面模块
-from pages.recommend import smart_recommendation_page
-from pages.pk_battle import food_pk_page
-from pages.cook_order import cook_or_order_page
-from pages.pantry import digital_pantry_page
-from pages.calendar import calendar_page
-from pages.settings import settings_page
+from modules.recommend import smart_recommendation_page
+from modules.pk_battle import food_pk_page
+from modules.cook_order import cook_or_order_page
+from modules.pantry import digital_pantry_page
+from modules.calendar import calendar_page
+from modules.settings import settings_page
 
 # 工具模块
 from utils.display import show_health_reminder
