@@ -61,11 +61,14 @@ def get_connection():
 def initialize_and_seed_database(conn):
     """
     统一的数据库初始化函数。
-    如果数据库文件不存在，则创建所有表并填充所有默认数据。
-    这个函数会处理所有初始化逻辑，确保操作的原子性。
+    幂等操作，可以安全地重复运行。
     """
     cursor = conn.cursor()
-    
+
+    # 快速路径：如果 foods 表已有数据，跳过加载种子数据（仅执行必要的迁移）
+    cursor.execute("SELECT COUNT(*) as cnt FROM foods")
+    has_data = cursor.fetchone()['cnt'] > 0
+
     # 用户表
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -205,152 +208,152 @@ def initialize_and_seed_database(conn):
             ADD COLUMN user_id VARCHAR(255) NOT NULL DEFAULT 'admin'
         """)
 
-    # --- 步骤 2: 填充默认数据 (在同一个连接下) ---
-    
-    # 默认用户
-    default_users = [
-        ("admin", "管理员", "admin123", json.dumps({"role": "admin"})),
-        ("bf", "男朋友", "bf123", json.dumps({"spicy": True, "sweet": False})),
-        ("gf", "女朋友", "gf123", json.dumps({"spicy": False, "sweet": True})),
-    ]
-    try:
-        cursor.executemany("""
-            INSERT INTO users (username, name, password, preferences)
-            VALUES (%s, %s, %s, %s) 
-            ON CONFLICT(username) DO NOTHING
-        """, default_users)
-    except Exception as e:
-        print(f"插入默认用户数据出错: {e}")
+    # --- 步骤 2: 填充默认数据 (仅在首次初始化时执行) ---
+    if not has_data:
+        # 默认用户
+        default_users = [
+            ("admin", "管理员", "admin123", json.dumps({"role": "admin"})),
+            ("bf", "男朋友", "bf123", json.dumps({"spicy": True, "sweet": False})),
+            ("gf", "女朋友", "gf123", json.dumps({"spicy": False, "sweet": True})),
+        ]
+        try:
+            cursor.executemany("""
+                INSERT INTO users (username, name, password, preferences)
+                VALUES (%s, %s, %s, %s) 
+                ON CONFLICT(username) DO NOTHING
+            """, default_users)
+        except Exception as e:
+            print(f"插入默认用户数据出错: {e}")
 
-    # 默认食物
-    default_foods = [
-        # 原有数据
-        ("麻辣香锅", "中餐", "$$$", "Spicy", None),
-        ("番茄炒蛋", "家常菜", "$", "Healthy", None),
-        ("牛排", "西餐", "$$$", "CheatMeal", None),
-        ("减脂沙拉", "轻食", "$$", "Healthy", None),
-        ("重庆火锅", "大餐", "$$$", "CheatMeal", None),
-        ("寿司", "日料", "$$", "Light", None),
-        ("麦当劳", "快餐", "$", "CheatMeal", None),
-        ("手抓饼", "速食", "$", "Normal", None),
-        ("水饺", "速食", "$", "Normal", None),
-        ("酸奶", "零食饮料", "$", "Healthy", None),
+        # 默认食物
+        default_foods = [
+            # 原有数据
+            ("麻辣香锅", "中餐", "$$$", "Spicy", None),
+            ("番茄炒蛋", "家常菜", "$", "Healthy", None),
+            ("牛排", "西餐", "$$$", "CheatMeal", None),
+            ("减脂沙拉", "轻食", "$$", "Healthy", None),
+            ("重庆火锅", "大餐", "$$$", "CheatMeal", None),
+            ("寿司", "日料", "$$", "Light", None),
+            ("麦当劳", "快餐", "$", "CheatMeal", None),
+            ("手抓饼", "速食", "$", "Normal", None),
+            ("水饺", "速食", "$", "Normal", None),
+            ("酸奶", "零食饮料", "$", "Healthy", None),
 
-        # 中餐
-        ("宫保鸡丁", "中餐", "$$", "Normal", None),
-        ("鱼香肉丝", "中餐", "$$", "Normal", None),
-        ("回锅肉", "中餐", "$$", "CheatMeal", None),
-        ("北京烤鸭", "大餐", "$$$", "CheatMeal", None),
-        ("咕咾肉", "中餐", "$$", "Sweet", None),
-        ("锅包肉", "中餐", "$$", "Sweet", None),
-        ("蒜泥白肉", "中餐", "$$", "Spicy", None),
-        ("东坡肉", "大餐", "$$$", "CheatMeal", None),
-        ("梅菜扣肉", "家常菜", "$$", "CheatMeal", None),
-        ("葱爆羊肉", "中餐", "$$", "Normal", None),
+            # 中餐
+            ("宫保鸡丁", "中餐", "$$", "Normal", None),
+            ("鱼香肉丝", "中餐", "$$", "Normal", None),
+            ("回锅肉", "中餐", "$$", "CheatMeal", None),
+            ("北京烤鸭", "大餐", "$$$", "CheatMeal", None),
+            ("咕咾肉", "中餐", "$$", "Sweet", None),
+            ("锅包肉", "中餐", "$$", "Sweet", None),
+            ("蒜泥白肉", "中餐", "$$", "Spicy", None),
+            ("东坡肉", "大餐", "$$$", "CheatMeal", None),
+            ("梅菜扣肉", "家常菜", "$$", "CheatMeal", None),
+            ("葱爆羊肉", "中餐", "$$", "Normal", None),
 
-        # 家常菜
-        ("青椒肉丝", "家常菜", "$", "Normal", None),
-        ("奶油蘑菇汤", "西餐", "$$", "Normal", None),
-        ("凯撒沙拉", "西餐", "$$", "Healthy", None),
-        ("意大利肉酱面", "西餐", "$$", "Normal", None),
-        ("夏威夷披萨", "西餐", "$$", "CheatMeal", None),
-        ("烤三文鱼", "西餐", "$$$", "Healthy", None),
-        ("惠灵顿牛排", "大餐", "$$$", "CheatMeal", None),
-        ("西班牙海鲜饭", "西餐", "$$$", "Light", None),
-        ("炸鱼薯条", "快餐", "$$", "CheatMeal", None),
-        ("法式鹅肝", "大餐", "$$$", "CheatMeal", None),
+            # 家常菜
+            ("青椒肉丝", "家常菜", "$", "Normal", None),
+            ("奶油蘑菇汤", "西餐", "$$", "Normal", None),
+            ("凯撒沙拉", "西餐", "$$", "Healthy", None),
+            ("意大利肉酱面", "西餐", "$$", "Normal", None),
+            ("夏威夷披萨", "西餐", "$$", "CheatMeal", None),
+            ("烤三文鱼", "西餐", "$$$", "Healthy", None),
+            ("惠灵顿牛排", "大餐", "$$$", "CheatMeal", None),
+            ("西班牙海鲜饭", "西餐", "$$$", "Light", None),
+            ("炸鱼薯条", "快餐", "$$", "CheatMeal", None),
+            ("法式鹅肝", "大餐", "$$$", "CheatMeal", None),
 
-        # 日料
-        ("三文鱼刺身", "日料", "$$$", "Light", None),
-        ("鳗鱼饭", "日料", "$$$", "CheatMeal", None),
-        ("豚骨拉面", "日料", "$$", "Normal", None),
-        ("天妇罗", "日料", "$$", "CheatMeal", None),
-        ("章鱼烧", "小吃", "$", "Normal", None),
-        ("寿喜烧", "大餐", "$$$", "Sweet", None),
-        ("味噌汤", "日料", "$", "Healthy", None),
-        ("日式猪排饭", "日料", "$$", "CheatMeal", None),
-        ("关东煮", "小吃", "$", "Healthy", None),
-        ("亲子丼", "日料", "$$", "Normal", None),
+            # 日料
+            ("三文鱼刺身", "日料", "$$$", "Light", None),
+            ("鳗鱼饭", "日料", "$$$", "CheatMeal", None),
+            ("豚骨拉面", "日料", "$$", "Normal", None),
+            ("天妇罗", "日料", "$$", "CheatMeal", None),
+            ("章鱼烧", "小吃", "$", "Normal", None),
+            ("寿喜烧", "大餐", "$$$", "Sweet", None),
+            ("味噌汤", "日料", "$", "Healthy", None),
+            ("日式猪排饭", "日料", "$$", "CheatMeal", None),
+            ("关东煮", "小吃", "$", "Healthy", None),
+            ("亲子丼", "日料", "$$", "Normal", None),
 
-        # 快餐
-        ("牛肉汉堡", "快餐", "$$", "CheatMeal", None),
-        ("炸鸡桶", "快餐", "$$", "CheatMeal", None),
-        ("原味薯条", "快餐", "$", "CheatMeal", None),
-        ("热狗", "快餐", "$", "CheatMeal", None),
-        ("墨西哥鸡肉卷", "快餐", "$$", "Normal", None),
-        ("鸡米花", "快餐", "$", "CheatMeal", None),
-        ("洋葱圈", "快餐", "$", "CheatMeal", None),
-        ("香草奶昔", "零食饮料", "$", "Sweet", None),
-        ("方便面", "速食", "$", "Normal", None),
-        ("螺蛳粉", "速食", "$$", "Spicy", None),
+            # 快餐
+            ("牛肉汉堡", "快餐", "$$", "CheatMeal", None),
+            ("炸鸡桶", "快餐", "$$", "CheatMeal", None),
+            ("原味薯条", "快餐", "$", "CheatMeal", None),
+            ("热狗", "快餐", "$", "CheatMeal", None),
+            ("墨西哥鸡肉卷", "快餐", "$$", "Normal", None),
+            ("鸡米花", "快餐", "$", "CheatMeal", None),
+            ("洋葱圈", "快餐", "$", "CheatMeal", None),
+            ("香草奶昔", "零食饮料", "$", "Sweet", None),
+            ("方便面", "速食", "$", "Normal", None),
+            ("螺蛳粉", "速食", "$$", "Spicy", None),
 
-        # 甜品
-        ("提拉米苏", "甜品", "$$", "Sweet", None),
-        ("芝士蛋糕", "甜品", "$$", "Sweet", None),
-        ("芒果班戟", "甜品", "$$", "Sweet", None),
-        ("杨枝甘露", "甜品", "$$", "Healthy", None),
-        ("双皮奶", "甜品", "$", "Sweet", None),
-        ("香草冰淇淋", "甜品", "$", "Sweet", None),
-        ("巧克力熔岩蛋糕", "甜品", "$$", "CheatMeal", None),
-        ("葡式蛋挞", "甜品", "$", "Sweet", None),
-        ("草莓华夫饼", "甜品", "$$", "Sweet", None),
-        ("马卡龙", "甜品", "$$$", "Sweet", None),
+            # 甜品
+            ("提拉米苏", "甜品", "$$", "Sweet", None),
+            ("芝士蛋糕", "甜品", "$$", "Sweet", None),
+            ("芒果班戟", "甜品", "$$", "Sweet", None),
+            ("杨枝甘露", "甜品", "$$", "Healthy", None),
+            ("双皮奶", "甜品", "$", "Sweet", None),
+            ("香草冰淇淋", "甜品", "$", "Sweet", None),
+            ("巧克力熔岩蛋糕", "甜品", "$$", "CheatMeal", None),
+            ("葡式蛋挞", "甜品", "$", "Sweet", None),
+            ("草莓华夫饼", "甜品", "$$", "Sweet", None),
+            ("马卡龙", "甜品", "$$$", "Sweet", None),
 
-        # 轻食
-        ("鸡胸肉沙ラ", "轻食", "$$", "Healthy", None),
-        ("水果酸奶碗", "轻食", "$$", "Healthy", None),
-        ("能量棒", "轻食", "$", "Healthy", None),
-        ("全麦火腿三明治", "轻食", "$$", "Normal", None),
-        ("越南春卷", "轻食", "$$", "Light", None),
-        ("藜麦沙拉", "轻食", "$$", "Healthy", None),
-        ("鹰嘴豆泥", "轻食", "$$", "Healthy", None),
-        ("烤时蔬", "轻食", "$$", "Healthy", None),
-        ("燕麦粥", "早餐", "$", "Healthy", None),
+            # 轻食
+            ("鸡胸肉沙ラ", "轻食", "$$", "Healthy", None),
+            ("水果酸奶碗", "轻食", "$$", "Healthy", None),
+            ("能量棒", "轻食", "$", "Healthy", None),
+            ("全麦火腿三明治", "轻食", "$$", "Normal", None),
+            ("越南春卷", "轻食", "$$", "Light", None),
+            ("藜麦沙拉", "轻食", "$$", "Healthy", None),
+            ("鹰嘴豆泥", "轻食", "$$", "Healthy", None),
+            ("烤时蔬", "轻食", "$$", "Healthy", None),
+            ("燕麦粥", "早餐", "$", "Healthy", None),
 
-        # 烧烤
-        ("烤羊肉串", "烧烤", "$$", "Spicy", None),
-        ("烤五花肉", "烧烤", "$$", "CheatMeal", None),
-        ("烤鸡翅", "烧烤", "$$", "Normal", None),
-        ("烤茄子", "烧烤", "$", "Spicy", None),
-        ("烤韭菜", "烧烤", "$", "Normal", None),
-        ("烤生蚝", "烧烤", "$$$", "CheatMeal", None),
-        ("烤面筋", "烧烤", "$", "Spicy", None),
-        ("烤鱿鱼", "烧烤", "$$", "Spicy", None),
-        ("烤玉米", "烧烤", "$", "Healthy", None),
-        ("烤土豆片", "烧烤", "$", "Normal", None),
+            # 烧烤
+            ("烤羊肉串", "烧烤", "$$", "Spicy", None),
+            ("烤五花肉", "烧烤", "$$", "CheatMeal", None),
+            ("烤鸡翅", "烧烤", "$$", "Normal", None),
+            ("烤茄子", "烧烤", "$", "Spicy", None),
+            ("烤韭菜", "烧烤", "$", "Normal", None),
+            ("烤生蚝", "烧烤", "$$$", "CheatMeal", None),
+            ("烤面筋", "烧烤", "$", "Spicy", None),
+            ("烤鱿鱼", "烧烤", "$$", "Spicy", None),
+            ("烤玉米", "烧烤", "$", "Healthy", None),
+            ("烤土豆片", "烧烤", "$", "Normal", None),
 
-        # 零食饮料
-        ("珍珠奶茶", "零食饮料", "$", "Sweet", None),
-        ("柠檬茶", "零食饮料", "$", "Healthy", None),
-        ("薯片", "零食饮料", "$", "CheatMeal", None),
-        ("辣条", "零食饮料", "$", "Spicy", None),
-        ("混合坚果", "零食饮料", "$$", "Healthy", None),
-        ("美式咖啡", "零食饮料", "$$", "Normal", None),
-        ("鲜榨橙汁", "零食饮料", "$$", "Healthy", None),
-        ("可口可乐", "零食饮料", "$", "CheatMeal", None),
-        ("电影院爆米花", "零食饮料", "$$", "Sweet", None),
-        ("海苔", "零食饮料", "$", "Healthy", None),
+            # 零食饮料
+            ("珍珠奶茶", "零食饮料", "$", "Sweet", None),
+            ("柠檬茶", "零食饮料", "$", "Healthy", None),
+            ("薯片", "零食饮料", "$", "CheatMeal", None),
+            ("辣条", "零食饮料", "$", "Spicy", None),
+            ("混合坚果", "零食饮料", "$$", "Healthy", None),
+            ("美式咖啡", "零食饮料", "$$", "Normal", None),
+            ("鲜榨橙汁", "零食饮料", "$$", "Healthy", None),
+            ("可口可乐", "零食饮料", "$", "CheatMeal", None),
+            ("电影院爆米花", "零食饮料", "$$", "Sweet", None),
+            ("海苔", "零食饮料", "$", "Healthy", None),
 
-        # 大餐
-        ("海底捞火锅", "大餐", "$$$", "CheatMeal", None),
-        ("羊蝎子火锅", "大餐", "$$$", "CheatMeal", None),
-        ("潮汕牛肉火锅", "大餐", "$$$", "Healthy", None),
-        ("烤全羊", "大餐", "$$$", "CheatMeal", None),
-        ("佛跳墙", "大餐", "$$$", "CheatMeal", None),
-        ("广式早茶", "大餐", "$$", "Normal", None),
-        ("小龙虾", "大餐", "$$$", "Spicy", None),
-        ("帝王蟹", "大餐", "$$$", "CheatMeal", None),
-        ("波士顿龙虾", "大餐", "$$$", "CheatMeal", None),
-        ("自助餐", "大餐", "$$$", "CheatMeal", None),
-    ]
-    try:
-        cursor.executemany("""
-            INSERT INTO foods (name, category, cost_level, health_tag, recipe_link)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT(name) DO NOTHING
-        """, default_foods)
-    except Exception as e:
-        print(f"插入默认食物数据出错: {e}")
+            # 大餐
+            ("海底捞火锅", "大餐", "$$$", "CheatMeal", None),
+            ("羊蝎子火锅", "大餐", "$$$", "CheatMeal", None),
+            ("潮汕牛肉火锅", "大餐", "$$$", "Healthy", None),
+            ("烤全羊", "大餐", "$$$", "CheatMeal", None),
+            ("佛跳墙", "大餐", "$$$", "CheatMeal", None),
+            ("广式早茶", "大餐", "$$", "Normal", None),
+            ("小龙虾", "大餐", "$$$", "Spicy", None),
+            ("帝王蟹", "大餐", "$$$", "CheatMeal", None),
+            ("波士顿龙虾", "大餐", "$$$", "CheatMeal", None),
+            ("自助餐", "大餐", "$$$", "CheatMeal", None),
+        ]
+        try:
+            cursor.executemany("""
+                INSERT INTO foods (name, category, cost_level, health_tag, recipe_link)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT(name) DO NOTHING
+            """, default_foods)
+        except Exception as e:
+            print(f"插入默认食物数据出错: {e}")
 
     # --- 步骤 3: 提交并关闭 ---
     conn.commit()
