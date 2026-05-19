@@ -186,8 +186,8 @@ if 'recommended_reason' not in st.session_state:
     st.session_state.recommended_reason = ""
 if 'recommended_time' not in st.session_state:
     st.session_state.recommended_time = ""
-if 'show_logout_confirmation' not in st.session_state:
-    st.session_state.show_logout_confirmation = False
+if 'show_switch_account' not in st.session_state:
+    st.session_state.show_switch_account = False
 
 # ============ 健康打卡 ============
 def show_health_checkin():
@@ -233,64 +233,24 @@ def show_health_checkin():
     
     show_health_reminder()
 
-# ============ 登录界面 ============
-def login_page():
-    st.markdown('<h1 class="main-title">🍽️ HoneyEat</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="text-align:center; color:#7f8c8d;">亲爱的，今天吃什么？</p>', unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.write("### 请登录")
-        username = st.text_input("用户名", key="login_username")
-        password = st.text_input("密码", type="password", key="login_password")
-        
-        col_a, col_b = st.columns(2)
-        with col_a:
-            if st.button("登录", use_container_width=True, key="login_btn"):
-                if username and password:
-                    conn = get_db_connection()
-                    result = verify_user(conn, username, password)
-                    if result["success"]:
-                        user = result["user"]
-                        st.session_state.logged_in = True
-                        st.session_state.current_user = user
-                        st.query_params["user"] = username
-                        st.success(f"欢迎回来，{user['name']}！")
-                        time.sleep(0.5)
-                        st.rerun()
-                    else:
-                        st.error(result["message"])
-                else:
-                    st.warning("请输入用户名和密码")
-        
-        with col_b:
-            if st.button("游客模式", use_container_width=True, key="guest_btn"):
-                st.session_state.logged_in = True
-                st.session_state.current_user = {'username': 'guest', 'name': '游客'}
-                st.query_params["user"] = "guest"
-                st.rerun()
-
-        st.write("")
-        with st.expander("没有账号？点此注册"):
-            with st.form("register_form"):
-                reg_username = st.text_input("注册用户名", key="reg_username")
-                reg_name = st.text_input("你的昵称", key="reg_name")
-                reg_password = st.text_input("设置密码", type="password", key="reg_password")
-                reg_confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password")
-
-                if st.form_submit_button("注册"):
-                    if not all([reg_username, reg_name, reg_password, reg_confirm_password]):
-                        st.error("所有字段都不能为空！")
-                    elif reg_password != reg_confirm_password:
-                        st.error("两次输入的密码不一致！")
-                    else:
-                        conn = get_db_connection()
-                        if create_user(conn, reg_username, reg_name, reg_password):
-                            st.success(f"用户 {reg_name} 注册成功！现在你可以用新账号登录了。")
-                        else:
-                            st.error("注册失败，用户名可能已被占用。")
-        
-        st.divider()
+# ============ 默认用户初始化 ============
+def init_default_user():
+    """自动以 'gf' 身份登录，若用户不存在则自动创建"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT username, name FROM users WHERE username = 'gf'")
+    user_row = cursor.fetchone()
+    if user_row:
+        st.session_state.logged_in = True
+        st.session_state.current_user = {
+            'username': user_row['username'],
+            'name': user_row['name']
+        }
+    else:
+        create_user(conn, 'gf', 'gf', 'gf123')
+        st.session_state.logged_in = True
+        st.session_state.current_user = {'username': 'gf', 'name': 'gf'}
+    st.query_params["user"] = "gf"
 
 # ============ 主应用 ============
 def main_app():
@@ -327,30 +287,47 @@ def main_app():
                 st.markdown('<div style="font-size: 72px; text-align: center;">👤</div>', unsafe_allow_html=True)
                 st.markdown(f"<div class='user-nav-name'>{st.session_state.current_user['name']}</div>", unsafe_allow_html=True)
             
-            if st.button("退出登录", key="logout_top_btn", use_container_width=True):
-                st.session_state.show_logout_confirmation = True
+            if st.button("切换账号", key="switch_account_btn", use_container_width=True):
+                st.session_state.show_switch_account = True
                 st.rerun()
             
             st.markdown('</div>', unsafe_allow_html=True)
     
-    # 处理退出登录的确认对话框
-    if st.session_state.get('show_logout_confirmation'):
-        _ , center_col, _ = st.columns([1, 1.5, 1])
+    # 处理切换账号
+    if st.session_state.get('show_switch_account'):
+        _ , center_col, _ = st.columns([1, 1.8, 1])
         with center_col:
             with st.container(border=True):
-                st.write("#### **确认退出**")
-                st.write("您确定要退出当前账号吗？")
-                btn_col1, btn_col2 = st.columns(2)
-                with btn_col1:
-                    if st.button("确认", key="confirm_logout_dialog", use_container_width=True, type="primary"):
-                        st.session_state.logged_in = False
-                        st.session_state.current_user = None
-                        st.session_state.show_logout_confirmation = False
-                        st.query_params.clear()
+                st.write("#### 切换账号")
+                switch_username = st.text_input("用户名", key="switch_username")
+                switch_password = st.text_input("密码", type="password", key="switch_password")
+                col_sw1, col_sw2, col_sw3 = st.columns(3)
+                with col_sw1:
+                    if st.button("登录", key="switch_login_btn", use_container_width=True):
+                        if switch_username and switch_password:
+                            conn = get_db_connection()
+                            result = verify_user(conn, switch_username, switch_password)
+                            if result["success"]:
+                                user = result["user"]
+                                st.session_state.logged_in = True
+                                st.session_state.current_user = user
+                                st.session_state.show_switch_account = False
+                                st.query_params["user"] = user['username']
+                                st.rerun()
+                            else:
+                                st.error(result["message"])
+                        else:
+                            st.warning("请输入用户名和密码")
+                with col_sw2:
+                    if st.button("游客", key="switch_guest_btn", use_container_width=True):
+                        st.session_state.logged_in = True
+                        st.session_state.current_user = {'username': 'guest', 'name': '游客'}
+                        st.session_state.show_switch_account = False
+                        st.query_params["user"] = "guest"
                         st.rerun()
-                with btn_col2:
-                    if st.button("取消", key="cancel_logout_dialog", use_container_width=True):
-                        st.session_state.show_logout_confirmation = False
+                with col_sw3:
+                    if st.button("取消", key="switch_cancel_btn", use_container_width=True):
+                        st.session_state.show_switch_account = False
                         st.rerun()
         return
 
@@ -359,7 +336,7 @@ def main_app():
     
     # 主功能标签页
     tabs = st.tabs([
-        "🎲 智能推荐",
+        "😋 今天吃什么",
         "⚔️ 美食大乱斗", 
         "⚖️ 做饭vs外卖",
         "🥗 数字冰箱",
@@ -387,26 +364,7 @@ def main_app():
 
 # ============ 主入口 ============
 if not st.session_state.logged_in:
-    # 尝试从URL参数恢复登录（解决Streamlit Cloud休眠后session丢失的问题）
-    saved_user = st.query_params.get("user")
-    if saved_user:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        if saved_user == "guest":
-            st.session_state.logged_in = True
-            st.session_state.current_user = {'username': 'guest', 'name': '游客'}
-        else:
-            cursor.execute("SELECT username, name FROM users WHERE username = %s", (saved_user,))
-            user_row = cursor.fetchone()
-            if user_row:
-                st.session_state.logged_in = True
-                st.session_state.current_user = {
-                    'username': user_row['username'],
-                    'name': user_row['name']
-                }
-    if not st.session_state.logged_in:
-        login_page()
-    else:
-        st.rerun()
+    init_default_user()
+    st.rerun()
 else:
     main_app()

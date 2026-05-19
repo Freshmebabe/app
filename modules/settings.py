@@ -430,7 +430,29 @@ def settings_page():
                         st.error("❌ 密码修改失败，请稍后重试。")
         
         st.divider()
-        
-        if st.button("🚪 退出登录", key="logout_settings_btn", use_container_width=True):
-            st.session_state.show_logout_confirmation = True
-            st.rerun()
+
+        st.write("#### 切换账号")
+        sw_user = st.text_input("用户名", key="set_sw_user")
+        sw_pwd = st.text_input("密码", type="password", key="set_sw_pwd")
+        col_sw1, col_sw2 = st.columns(2)
+        with col_sw1:
+            if st.button("登录", key="set_login_btn", use_container_width=True):
+                if sw_user and sw_pwd:
+                    conn2 = get_db_connection()
+                    from database import verify_user
+                    result = verify_user(conn2, sw_user, sw_pwd)
+                    if result["success"]:
+                        st.session_state.current_user = result["user"]
+                        st.query_params["user"] = sw_user
+                        st.success(f"已切换为 {result['user']['name']}")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error(result["message"])
+                else:
+                    st.warning("请输入用户名和密码")
+        with col_sw2:
+            if st.button("游客模式", key="set_guest_btn", use_container_width=True):
+                st.session_state.current_user = {'username': 'guest', 'name': '游客'}
+                st.query_params["user"] = "guest"
+                st.rerun()
