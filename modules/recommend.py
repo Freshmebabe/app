@@ -131,8 +131,14 @@ def _save_food_and_record(food_name: str, category: str = "AI推荐", health_tag
     cursor = conn.cursor()
     user_id = st.session_state.current_user['username']
 
-    # 清理旧的种子数据（非用户手动添加的）
-    cursor.execute("DELETE FROM foods WHERE is_custom = FALSE")
+    # 确保 is_custom 列存在（兼容旧数据库）
+    try:
+        cursor.execute("DELETE FROM foods WHERE is_custom = FALSE")
+    except Exception:
+        conn.rollback()
+        cursor.execute("ALTER TABLE foods ADD COLUMN IF NOT EXISTS is_custom BOOLEAN DEFAULT FALSE")
+        conn.commit()
+        cursor.execute("DELETE FROM foods WHERE is_custom = FALSE")
 
     # 添加或更新当前菜品
     cursor.execute("SELECT id FROM foods WHERE name = %s", (food_name,))
