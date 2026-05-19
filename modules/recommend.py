@@ -125,7 +125,22 @@ def _ensure_recipe_fields(recipe: dict) -> dict:
     return recipe
 
 
-def _save_food_and_record(food_name: str, category: str = "AI推荐", health_tag: str = "Normal"):
+def _get_meal_time() -> str:
+    """根据当前时间自动判断用餐类型"""
+    current_hour = datetime.now().hour
+    if 5 <= current_hour < 10:
+        return "早餐"
+    elif 10 <= current_hour < 14:
+        return "午餐"
+    elif 14 <= current_hour < 17:
+        return "下午茶"
+    elif 17 <= current_hour < 21:
+        return "晚餐"
+    else:
+        return "夜宵"
+
+
+def _save_food_and_record(food_name: str, category: str = "AI推荐", health_tag: str = "Normal", meal_time: str = None):
     """保存菜品到数据库并记录到饮食历史，同时清理旧的种子数据"""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -160,18 +175,9 @@ def _save_food_and_record(food_name: str, category: str = "AI推荐", health_tag
         """, (food_name, category, health_tag))
         food_id = cursor.fetchone()['id']
 
-    # 记录到饮食历史
-    current_hour = datetime.now().hour
-    if 5 <= current_hour < 10:
-        meal_time = "早餐"
-    elif 10 <= current_hour < 14:
-        meal_time = "午餐"
-    elif 14 <= current_hour < 17:
-        meal_time = "下午茶"
-    elif 17 <= current_hour < 21:
-        meal_time = "晚餐"
-    else:
-        meal_time = "夜宵"
+    # 记录到饮食历史（使用传入的餐次或当前时间自动判断）
+    if meal_time is None:
+        meal_time = _get_meal_time()
 
     cursor.execute("""
         INSERT INTO eat_history (date, meal_time, food_id, food_name, user_id, rating, mode)
@@ -192,6 +198,7 @@ def smart_recommendation_page():
             result = _ai_recommend_food(user_id)
             if result:
                 st.session_state.ai_recommend = result
+                st.session_state.ai_recommend_meal = _get_meal_time()  # 记录推荐时的用餐时间
                 st.rerun()
 
     # ---- 模式2: 根据冰箱推荐 ----
@@ -209,6 +216,7 @@ def smart_recommendation_page():
                 recipe = ai_generate_recipe(ingredients)
                 if recipe:
                     st.session_state.fridge_recipe = recipe
+                    st.session_state.fridge_recipe_meal = _get_meal_time()  # 记录推荐时的用餐时间
                     st.rerun()
 
     # ---- 展示随便推荐结果 ----
@@ -252,9 +260,10 @@ def smart_recommendation_page():
         col_a, col_b = st.columns(2)
         with col_a:
             if st.button("✅ 就吃这个！", use_container_width=True, type="primary", key="confirm_ai"):
-                meal_time = _save_food_and_record(result['name'])
+                meal_time = _save_food_and_record(result['name'], meal_time=st.session_state.get('ai_recommend_meal'))
                 st.toast(f"已记录到{meal_time}！", icon="✅")
                 del st.session_state.ai_recommend
+                st.session_state.ai_recommend_meal = None
                 time.sleep(1)
                 st.rerun()
         with col_b:
@@ -306,9 +315,10 @@ def smart_recommendation_page():
         col_a, col_b = st.columns(2)
         with col_a:
             if st.button("✅ 就吃这个！", use_container_width=True, type="primary", key="confirm_fridge"):
-                meal_time = _save_food_and_record(recipe['name'], category="家常菜")
+                meal_time = _save_food_and_record(recipe['name'], category="家常菜", meal_time=st.session_state.get('fridge_recipe_meal'))
                 st.toast(f"已记录到{meal_time}！", icon="✅")
                 del st.session_state.fridge_recipe
+                st.session_state.fridge_recipe_meal = None
                 time.sleep(1)
                 st.rerun()
         with col_b:
