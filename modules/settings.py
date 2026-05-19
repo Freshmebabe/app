@@ -77,7 +77,7 @@ def settings_page():
     # ==== 我的菜谱 ====
     with tabs[1]:
         st.write("#### 📖 我的菜谱")
-        st.caption("在这里添加你的私房菜谱，让"智能配餐"更懂你！")
+        st.caption("在这里添加你的私房菜谱，让「智能配餐」更懂你！")
 
         cursor.execute("SELECT id, recipe_name, ingredients FROM user_recipes WHERE user_id = %s", (user_id,))
         my_recipes = cursor.fetchall()
@@ -112,7 +112,7 @@ def settings_page():
                         (user_id, new_recipe_name, ingredients_json)
                     )
                     conn.commit()
-                    st.success(f"菜谱 "{new_recipe_name}" 已保存！")
+                    st.success(f"菜谱「{new_recipe_name}」已保存！")
                     st.rerun()
                 except Exception as e:
                     st.error("保存失败，菜谱名称可能已存在。")
