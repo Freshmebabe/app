@@ -149,6 +149,24 @@ st.markdown("""
     @media (max-width: 768px) {
         .main-title { font-size: 1.8rem; }
         .result-box { font-size: 1.5rem; padding: 1.5rem; }
+        
+        /* 按钮触控优化：至少44px高，方便手指点击 */
+        .stButton > button, .stFormSubmitButton > button {
+            min-height: 44px !important;
+            font-size: 1rem !important;
+            padding: 0.7rem 1rem !important;
+        }
+        
+        /* 输入框触控优化：16px字体防止iOS自动缩放 */
+        input[type="text"], input[type="password"] {
+            min-height: 44px !important;
+            font-size: 16px !important;
+        }
+        
+        /* 减小页面边距，给手机更多内容空间 */
+        .block-container {
+            padding: 1rem 0.5rem !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -236,6 +254,7 @@ def login_page():
                         user = result["user"]
                         st.session_state.logged_in = True
                         st.session_state.current_user = user
+                        st.query_params["user"] = username
                         st.success(f"欢迎回来，{user['name']}！")
                         time.sleep(0.5)
                         st.rerun()
@@ -248,6 +267,7 @@ def login_page():
             if st.button("游客模式", use_container_width=True, key="guest_btn"):
                 st.session_state.logged_in = True
                 st.session_state.current_user = {'username': 'guest', 'name': '游客'}
+                st.query_params["user"] = "guest"
                 st.rerun()
 
         st.write("")
@@ -326,6 +346,7 @@ def main_app():
                         st.session_state.logged_in = False
                         st.session_state.current_user = None
                         st.session_state.show_logout_confirmation = False
+                        st.query_params.clear()
                         st.rerun()
                 with btn_col2:
                     if st.button("取消", key="cancel_logout_dialog", use_container_width=True):
@@ -366,6 +387,26 @@ def main_app():
 
 # ============ 主入口 ============
 if not st.session_state.logged_in:
-    login_page()
+    # 尝试从URL参数恢复登录（解决Streamlit Cloud休眠后session丢失的问题）
+    saved_user = st.query_params.get("user")
+    if saved_user:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        if saved_user == "guest":
+            st.session_state.logged_in = True
+            st.session_state.current_user = {'username': 'guest', 'name': '游客'}
+        else:
+            cursor.execute("SELECT username, name FROM users WHERE username = %s", (saved_user,))
+            user_row = cursor.fetchone()
+            if user_row:
+                st.session_state.logged_in = True
+                st.session_state.current_user = {
+                    'username': user_row['username'],
+                    'name': user_row['name']
+                }
+    if not st.session_state.logged_in:
+        login_page()
+    else:
+        st.rerun()
 else:
     main_app()
