@@ -283,7 +283,7 @@ def digital_pantry_page():
                             for item in rec['missing']:
                                 cursor.execute("INSERT INTO shopping_list (item_name, user_id) VALUES (%s, %s)", (item, user_id))
                             conn.commit()
-                            st.toast(f""{missing_str}" 已加入待买清单！")
+                            st.toast(f"「{missing_str}」已加入待买清单！")
                             time.sleep(0.5)
 
                     st.link_button("📕 去小红书找灵感", f"https://www.xiaohongshu.com/search_result/?keyword={rec['name']} 做法", use_container_width=True)
