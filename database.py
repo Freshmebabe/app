@@ -5,6 +5,7 @@ import psycopg2
 import psycopg2.errors
 import psycopg2.extensions
 from psycopg2.extras import DictCursor
+import streamlit as st
 
 
 class _DictConnection(psycopg2.extensions.connection):
@@ -56,6 +57,16 @@ def get_connection():
             hint = f"原始错误: {e}"
         raise RuntimeError(f"❌ 数据库连接失败！\n{hint}")
     conn.autocommit = True
+    return conn
+
+@st.cache_resource
+def get_db_connection():
+    """
+    获取并缓存数据库连接。
+    幂等操作，可安全重复调用。
+    """
+    conn = get_connection()
+    initialize_and_seed_database(conn)
     return conn
 
 def initialize_and_seed_database(conn):

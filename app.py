@@ -8,7 +8,7 @@ import time
 import base64
 from datetime import datetime, timedelta
 from database import (
-    get_connection, initialize_and_seed_database, verify_user, create_user,
+    get_connection, get_db_connection, initialize_and_seed_database, verify_user, create_user,
     get_user_avatar
 )
 
@@ -170,22 +170,6 @@ if 'recommended_time' not in st.session_state:
     st.session_state.recommended_time = ""
 if 'show_logout_confirmation' not in st.session_state:
     st.session_state.show_logout_confirmation = False
-
-# ============ 数据库连接管理 ============
-@st.cache_resource
-def get_db_connection():
-    """
-    获取并缓存数据库连接。
-    在首次调用时，会检查数据库是否存在，如果不存在，则执行完整的初始化。
-    这个过程是阻塞的，确保在返回连接之前，数据库已准备就绪。
-    """
-    conn = get_connection()
-    
-    # 始终运行初始化和迁移脚本，以确保数据库结构是最新的。
-    # 此函数是幂等的，可以安全地重复运行。
-    initialize_and_seed_database(conn)
-        
-    return conn
 
 # ============ 健康打卡 ============
 def show_health_checkin():
