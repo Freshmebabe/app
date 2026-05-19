@@ -19,17 +19,32 @@ def get_connection():
             user=user,
             password=password,
             host=host,
-            port=port
+            port=port,
+            connect_timeout=10
         )
     except Exception as e:
-        raise RuntimeError(
-            f"❌ 数据库连接失败！请检查 Secrets 配置。\n"
-            f"   HOST={host}\n"
-            f"   PORT={port}\n"
-            f"   DB={dbname}\n"
-            f"   USER={user}\n"
-            f"   原始错误: {e}"
-        )
+        # 判断 Secrets 是否生效（不泄露实际值）
+        secrets_loaded = (host != 'localhost' and password != '')
+        if not secrets_loaded:
+            hint = (
+                "⚠️ Secrets 未生效！请检查：\n"
+                "1. Manage app → Secrets 中是否已保存配置\n"
+                "2. 配置格式是否为 TOML（值要加双引号）\n"
+                "3. 保存后是否点了 Reboot app"
+            )
+        elif 'could not translate host' in str(e).lower():
+            hint = "⚠️ 无法解析主机名，请确认 POSTGRES_HOST 是否正确"
+        elif 'password authentication' in str(e).lower():
+            hint = "⚠️ 密码错误，请确认 POSTGRES_PASSWORD 是否正确"
+        elif 'timeout' in str(e).lower() or 'could not connect' in str(e).lower():
+            hint = (
+                "⚠️ 连接超时/被拒绝。可能原因：\n"
+                "1. 请使用 Supabase 的 Session Pooler 连接（以 pooler.supabase.com 结尾）\n"
+                "2. 直连模式在某些云平台可能被防火墙拦截"
+            )
+        else:
+            hint = f"原始错误: {e}"
+        raise RuntimeError(f"❌ 数据库连接失败！\n{hint}")
     conn.autocommit = True
     # 让所有 cursor() 调用默认返回 DictCursor，使行数据可通过列名访问
     _original_cursor = conn.cursor
