@@ -7,13 +7,29 @@ from psycopg2.extras import DictCursor
 
 def get_connection():
     """获取PostgreSQL数据库连接（自动使用DictCursor）"""
-    conn = psycopg2.connect(
-        dbname=os.getenv('POSTGRES_DB', 'honeyeat'),
-        user=os.getenv('POSTGRES_USER', 'postgres'),
-        password=os.getenv('POSTGRES_PASSWORD', ''),
-        host=os.getenv('POSTGRES_HOST', 'localhost'),
-        port=os.getenv('POSTGRES_PORT', '5432')
-    )
+    dbname = os.getenv('POSTGRES_DB', 'honeyeat')
+    user = os.getenv('POSTGRES_USER', 'postgres')
+    password = os.getenv('POSTGRES_PASSWORD', '')
+    host = os.getenv('POSTGRES_HOST', 'localhost')
+    port = os.getenv('POSTGRES_PORT', '5432')
+
+    try:
+        conn = psycopg2.connect(
+            dbname=dbname,
+            user=user,
+            password=password,
+            host=host,
+            port=port
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"❌ 数据库连接失败！请检查 Secrets 配置。\n"
+            f"   HOST={host}\n"
+            f"   PORT={port}\n"
+            f"   DB={dbname}\n"
+            f"   USER={user}\n"
+            f"   原始错误: {e}"
+        )
     conn.autocommit = True
     # 让所有 cursor() 调用默认返回 DictCursor，使行数据可通过列名访问
     _original_cursor = conn.cursor
