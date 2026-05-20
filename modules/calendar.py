@@ -71,7 +71,7 @@ def calendar_page():
             df['date'] = pd.to_datetime(df['date'])
 
             st.write("#### 📅 最近30天饮食热力图")
-            thirty_days_ago = pd.to_datetime(datetime.now(CHINA_TZ) - timedelta(days=30))
+            thirty_days_ago = pd.to_datetime(datetime.now(CHINA_TZ) - timedelta(days=30)).tz_localize(None)
             recent_df = df[df['date'] >= thirty_days_ago]
             
             if not recent_df.empty:
