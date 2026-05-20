@@ -4,9 +4,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from database import get_db_connection
+
+# Streamlit Cloud 服务器使用 UTC，用户在中国（UTC+8）
+CHINA_TZ = timezone(timedelta(hours=8))
 
 
 def calendar_page():
@@ -21,7 +24,7 @@ def calendar_page():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        thirty_days_ago = (datetime.now() - timedelta(days=30)).date()
+        thirty_days_ago = (datetime.now(CHINA_TZ) - timedelta(days=30)).date()
         cursor.execute("""
             SELECT date, food_name, meal_time, rating
             FROM eat_history
@@ -68,7 +71,7 @@ def calendar_page():
             df['date'] = pd.to_datetime(df['date'])
 
             st.write("#### 📅 最近30天饮食热力图")
-            thirty_days_ago = pd.to_datetime(datetime.now() - timedelta(days=30))
+            thirty_days_ago = pd.to_datetime(datetime.now(CHINA_TZ) - timedelta(days=30))
             recent_df = df[df['date'] >= thirty_days_ago]
             
             if not recent_df.empty:

@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import streamlit as st
 import time
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from database import (
     get_connection, get_db_connection, initialize_and_seed_database, verify_user, create_user,
     get_user_avatar
@@ -28,6 +28,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# Streamlit Cloud 服务器使用 UTC，用户在中国（UTC+8）
+CHINA_TZ = timezone(timedelta(hours=8))
 
 # 简约暖色系CSS
 st.markdown("""
@@ -244,7 +247,7 @@ def show_health_checkin():
     
     conn = get_db_connection()
     cursor = conn.cursor()
-    today = datetime.now().date()
+    today = datetime.now(CHINA_TZ).date()
     user_id = st.session_state.current_user['username']
     
     cursor.execute("""

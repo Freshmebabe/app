@@ -4,10 +4,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from openai import OpenAI
 from database import get_db_connection, get_user_preferences
 from utils.ai_chef import ai_generate_recipe
+
+# Streamlit Cloud 服务器使用 UTC，用户在中国（UTC+8）
+CHINA_TZ = timezone(timedelta(hours=8))
 
 
 def _get_ai_client():
@@ -32,8 +35,8 @@ def _ai_recommend_food(user_id: str) -> dict | None:
     cursor = conn.cursor()
     prefs = get_user_preferences(conn, user_id)
 
-    # 当前时间段
-    current_hour = datetime.now().hour
+    # 当前时间段（北京时间）
+    current_hour = datetime.now(CHINA_TZ).hour
     if 5 <= current_hour < 10:
         time_label = "早餐时间"
     elif 10 <= current_hour < 14:
@@ -126,8 +129,8 @@ def _ensure_recipe_fields(recipe: dict) -> dict:
 
 
 def _get_meal_time() -> str:
-    """根据当前时间自动判断用餐类型"""
-    current_hour = datetime.now().hour
+    """根据北京时间自动判断用餐类型"""
+    current_hour = datetime.now(CHINA_TZ).hour
     if 5 <= current_hour < 10:
         return "早餐"
     elif 10 <= current_hour < 14:
@@ -182,7 +185,7 @@ def _save_food_and_record(food_name: str, category: str = "AI推荐", health_tag
     cursor.execute("""
         INSERT INTO eat_history (date, meal_time, food_id, food_name, user_id, rating, mode)
         VALUES (%s, %s, %s, %s, %s, %s, 'ai')
-    """, (datetime.now().date().isoformat(), meal_time, food_id, food_name, user_id, 5))
+    """, (datetime.now(CHINA_TZ).date().isoformat(), meal_time, food_id, food_name, user_id, 5))
     conn.commit()
     return meal_time
 

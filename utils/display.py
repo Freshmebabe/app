@@ -1,7 +1,10 @@
 import streamlit as st
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from database import get_db_connection
+
+# Streamlit Cloud 服务器使用 UTC，用户在中国（UTC+8）
+CHINA_TZ = timezone(timedelta(hours=8))
 
 
 def show_health_reminder():
@@ -11,7 +14,7 @@ def show_health_reminder():
     user_id = st.session_state.current_user['username']
     
     # 检查最近3天的饮食
-    three_days_ago = (datetime.now() - timedelta(days=3)).date()
+    three_days_ago = (datetime.now(CHINA_TZ) - timedelta(days=3)).date()
     cursor.execute("""
         SELECT f.health_tag, COUNT(*) as cnt
         FROM eat_history e
