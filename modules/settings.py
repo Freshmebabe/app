@@ -273,6 +273,7 @@ def settings_page():
                                     st.rerun()
                             with col_b3:
                                 if st.button("🗑️ 删除该食物", key=f"delete_{food['id']}", type="secondary", use_container_width=True):
+                                    cursor.execute("DELETE FROM eat_history WHERE food_id = %s", (food['id'],))
                                     cursor.execute("DELETE FROM foods WHERE id = %s", (food['id'],))
                                     conn.commit()
                                     st.session_state[f"editing_{food['id']}"] = False
@@ -303,6 +304,7 @@ def settings_page():
                 st.rerun()
         with col_batch3:
             if st.button("🗑️ 删除已禁用", key="delete_disabled", type="secondary", use_container_width=True):
+                cursor.execute("DELETE FROM eat_history WHERE food_id IN (SELECT id FROM foods WHERE active = 0)")
                 cursor.execute("DELETE FROM foods WHERE active = 0")
                 conn.commit()
                 st.warning("⚠️ 已删除所有禁用的食物")
