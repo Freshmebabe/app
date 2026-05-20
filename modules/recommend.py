@@ -268,7 +268,12 @@ def smart_recommendation_page():
                 st.rerun()
         with col_b:
             if st.button("🔄 再换一个", use_container_width=True, key="retry_ai"):
-                del st.session_state.ai_recommend
+                with st.spinner("AI 正在重新挑選..."):
+                    user_id = st.session_state.current_user['username']
+                    new_result = _ai_recommend_food(user_id)
+                    if new_result:
+                        st.session_state.ai_recommend = new_result
+                        st.session_state.ai_recommend_meal = _get_meal_time()
                 st.rerun()
 
     # ---- 展示冰箱推荐结果 ----
@@ -323,5 +328,14 @@ def smart_recommendation_page():
                 st.rerun()
         with col_b:
             if st.button("🔄 再换一个", use_container_width=True, key="retry_fridge"):
-                del st.session_state.fridge_recipe
+                with st.spinner("正在重新查看冰箱..."):
+                    conn = get_db_connection()
+                    cursor = conn.cursor()
+                    user_id = st.session_state.current_user['username']
+                    cursor.execute("SELECT food_name FROM pantry WHERE quantity > 0 AND user_id = %s", (user_id,))
+                    ingredients = [r['food_name'] for r in cursor.fetchall()]
+                    recipe = ai_generate_recipe(ingredients)
+                    if recipe:
+                        st.session_state.fridge_recipe = recipe
+                        st.session_state.fridge_recipe_meal = _get_meal_time()
                 st.rerun()
