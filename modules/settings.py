@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 import json
 import time
+import base64
 from database import get_db_connection, get_user_preferences, update_user_preferences, get_user_avatar, update_user_avatar, update_password
 
 
@@ -383,7 +384,11 @@ def settings_page():
         else:
             avatar = get_user_avatar(conn, user_id)
             if avatar:
-                st.image(avatar, caption="当前头像", width=128)
+                img_str = base64.b64encode(avatar).decode()
+                st.markdown(
+                    f'<img src="data:image/png;base64,{img_str}" class="avatar-image" style="width:128px;height:128px;">',
+                    unsafe_allow_html=True
+                )
             else:
                 st.caption("你还没有设置头像")
 
