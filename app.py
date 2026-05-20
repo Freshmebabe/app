@@ -14,8 +14,6 @@ from database import (
 
 # 页面模块
 from modules.recommend import smart_recommendation_page
-from modules.pk_battle import food_pk_page
-from modules.cook_order import cook_or_order_page
 from modules.pantry import digital_pantry_page
 from modules.calendar import calendar_page
 from modules.settings import settings_page
@@ -31,13 +29,13 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 极简风格CSS
+# 简约暖色系CSS
 st.markdown("""
 <style>
-    /* 全局样式 */
+    /* 全局 */
     body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei";
-        background: #f8f9fa;
+        background: #fafafa;
     }
     
     /* 主标题 */
@@ -50,50 +48,54 @@ st.markdown("""
         letter-spacing: 2px;
     }
     
-    /* 卡片样式 */
+    /* 卡片 */
     .card {
         background: white;
-        border-radius: 12px;
+        border-radius: 14px;
         padding: 1.5rem;
         margin: 1rem 0;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        box-shadow: 0 1px 6px rgba(0,0,0,0.06);
     }
     
-    /* 按钮样式 */
+    /* 按钮 — 统一柔和渐变 */
     .stButton>button {
-        background: #ecf0f1;
-        color: #2c3e50;
+        background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+        color: #333;
         border: none;
-        border-radius: 8px;
-        padding: 0.75rem 1.5rem;
+        border-radius: 12px;
+        padding: 0.7rem 1.5rem;
         font-weight: 500;
-        transition: all 0.3s;
+        transition: all 0.25s;
         width: 100%;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
-    
     .stButton>button:hover {
-        background: #bdc3c7;
-        transform: translateY(-2px);
+        background: linear-gradient(135deg, #e2e6f0 0%, #d5dbe8 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 3px 8px rgba(0,0,0,0.08);
+    }
+    .stButton>button:active {
+        transform: translateY(0);
     }
     
     /* 主操作按钮 */
-    .primary-btn {
-        background: #3498db !important;
+    .stButton>button[kind="primary"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
         color: white !important;
-        font-size: 1.1rem;
-        padding: 1rem 2rem;
+        font-weight: 600;
+        box-shadow: 0 4px 12px rgba(102,126,234,0.25);
+    }
+    .stButton>button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #5a6fd6 0%, #6a3f96 100%) !important;
+        box-shadow: 0 6px 16px rgba(102,126,234,0.35);
     }
     
-    .primary-btn:hover {
-        background: #2980b9 !important;
-    }
-    
-    /* 结果展示 */
+    /* 结果展示盒 */
     .result-box {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         padding: 2rem;
-        border-radius: 16px;
+        border-radius: 18px;
         text-align: center;
         font-size: 2rem;
         font-weight: 600;
@@ -108,18 +110,19 @@ st.markdown("""
     
     /* 健康提示 */
     .health-tip {
-        background: #fff3cd;
-        border-left: 4px solid #ffc107;
-        padding: 1rem;
-        border-radius: 4px;
-        margin: 1rem 0;
+        background: #fef9e7;
+        border-left: 4px solid #f5b041;
+        padding: 0.8rem 1rem;
+        border-radius: 0 8px 8px 0;
+        margin: 0.6rem 0;
+        font-size: 0.95rem;
     }
 
     /* AI推荐结果卡片 */
     .ai-result-card {
         background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
         border: 1px solid #e8ecf1;
-        border-radius: 16px;
+        border-radius: 18px;
         padding: 1.5rem 2rem;
         margin: 1rem 0;
         box-shadow: 0 4px 16px rgba(102, 126, 234, 0.08);
@@ -150,7 +153,7 @@ st.markdown("""
     }
     .ai-meta {
         display: flex;
-        gap: 1.2rem;
+        gap: 1rem;
         font-size: 0.9rem;
         color: #555;
         margin-bottom: 0.8rem;
@@ -165,13 +168,13 @@ st.markdown("""
         font-style: italic;
         color: #666;
         font-size: 1rem;
-        line-height: 1.6;
+        line-height: 1.7;
         border-left: 3px solid #667eea;
         padding-left: 1rem;
         margin-top: 0.8rem;
     }
 
-    /* 头像样式 */
+    /* 头像 */
     .user-nav-container {
         display: flex;
         flex-direction: column;
@@ -187,39 +190,35 @@ st.markdown("""
         display: block;
         margin-left: auto;
         margin-right: auto;
-    }
-    .user-nav-logout-btn {
-        width: 120px;
-        margin-top: 0.5rem;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
     }
     .user-nav-name {
-        font-weight: bold;
+        font-weight: 600;
         text-align: center;
+        color: #333;
     }
     
-    /* 隐藏streamlit默认元素 */
+    /* 隐藏默认元素 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
     /* 移动端适配 */
     @media (max-width: 768px) {
-        .main-title { font-size: 1.8rem; }
-        .result-box { font-size: 1.5rem; padding: 1.5rem; }
+        .main-title { font-size: 1.7rem; }
+        .result-box { font-size: 1.4rem; padding: 1.2rem; }
+        .ai-dish-name { font-size: 1.4rem; }
+        .ai-result-card { padding: 1rem 1.2rem; }
+        .ai-meta { gap: 0.6rem; font-size: 0.8rem; }
         
-        /* 按钮触控优化：至少44px高，方便手指点击 */
-        .stButton > button, .stFormSubmitButton > button {
+        .stButton > button {
             min-height: 44px !important;
             font-size: 1rem !important;
             padding: 0.7rem 1rem !important;
         }
-        
-        /* 输入框触控优化：16px字体防止iOS自动缩放 */
         input[type="text"], input[type="password"] {
             min-height: 44px !important;
             font-size: 16px !important;
         }
-        
-        /* 减小页面边距，给手机更多内容空间 */
         .block-container {
             padding: 1rem 0.5rem !important;
         }
@@ -232,16 +231,6 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state:
     st.session_state.current_user = None
-if 'pk_round' not in st.session_state:
-    st.session_state.pk_round = []
-if 'lazy_level' not in st.session_state:
-    st.session_state.lazy_level = 5
-if 'recommended_food' not in st.session_state:
-    st.session_state.recommended_food = None
-if 'recommended_reason' not in st.session_state:
-    st.session_state.recommended_reason = ""
-if 'recommended_time' not in st.session_state:
-    st.session_state.recommended_time = ""
 if 'show_switch_account' not in st.session_state:
     st.session_state.show_switch_account = False
 
@@ -393,8 +382,6 @@ def main_app():
     # 主功能标签页
     tabs = st.tabs([
         "😋 今天吃什么",
-        "⚔️ 美食大乱斗", 
-        "⚖️ 做饭vs外卖",
         "🥗 数字冰箱",
         "📊 饮食日历",
         "⚙️ 设置"
@@ -404,18 +391,12 @@ def main_app():
         smart_recommendation_page()
     
     with tabs[1]:
-        food_pk_page()
-    
-    with tabs[2]:
-        cook_or_order_page()
-    
-    with tabs[3]:
         digital_pantry_page()
     
-    with tabs[4]:
+    with tabs[2]:
         calendar_page()
     
-    with tabs[5]:
+    with tabs[3]:
         settings_page()
 
 # ============ 主入口 ============

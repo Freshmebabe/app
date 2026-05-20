@@ -121,13 +121,13 @@ def digital_pantry_page():
 
             col_h1, col_h2, col_h3, col_h4 = st.columns([4, 2, 3, 1])
             with col_h1:
-                st.caption("食材")
+                st.caption("🥬 食材")
             with col_h2:
-                st.caption("数量")
+                st.caption("🔢 数量")
             with col_h3:
-                st.caption("更新时间")
+                st.caption("🕒 更新时间")
             with col_h4:
-                st.caption("操作")
+                st.caption("⚙️")
             st.divider()
 
             for index, item in df.iterrows():

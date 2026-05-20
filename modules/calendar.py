@@ -37,12 +37,12 @@ def calendar_page():
                 by_date[rec['date']].append(rec)
             
             for date in sorted(by_date.keys(), reverse=True):
-                st.write(f"#### {date}")
+                st.markdown(f"##### 📆 {date}")
                 for rec in by_date[date]:
-                    meal_emoji = {"早餐": "🌅", "午餐": "☀️", "晚餐": "🌙", "夜宵": "🌃"}.get(rec['meal_time'], "🍽️")
+                    meal_emoji = {"早餐": "🌅", "午餐": "☀️", "下午茶": "🍰", "晚餐": "🌙", "夜宵": "🌃"}.get(rec['meal_time'], "🍽️")
                     rating_stars = "⭐" * (rec['rating'] or 0)
-                    st.write(f"{meal_emoji} {rec['meal_time']}: {rec['food_name']} {rating_stars}")
-                st.divider()
+                    st.markdown(f"<span style='font-size:0.95rem;'>{meal_emoji} **{rec['meal_time']}**: {rec['food_name']} {rating_stars}</span>", unsafe_allow_html=True)
+                st.markdown("<hr style='border:0.5px solid #eee'>", unsafe_allow_html=True)
         else:
             st.info("还没有饮食记录哦")
 
